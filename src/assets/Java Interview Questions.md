@@ -1,8 +1,3 @@
-# Java Interview Questions
-
-### Good morning, and thank you for extending this opportunity to me. I'm Devaj Singh, currently working as a software developer at Lumina Datamatics. Over the past four years, I've developed a strong set of skills including both front-end and back-end technologies such as Java, JavaScript, TypeScript, HTML, and CSS. My recent project involvement centered around the Angular Framework for the front end and Spring Boot for the back-end, notably contributing to an publishing project where I led the development of custom plugins and integrating to the angular application and creating rest apis and unit tests with spring boot framework. This experience made me really excited about creating solutions that make a real difference. As your company seeks individuals for a similar role, I am confident that my background aligns well with your requirements.
-
-### As the journey of learning never stops , I am actively honing my skills in system design to strengthen my abilities further. I believe that by improving my proficiency in this area, I can not only contribute effectively to your team but also drive innovation and efficiency within the organization. Thank you for considering my candidacy.
 
 ## Explain Java programming language. What are its special features?
 
