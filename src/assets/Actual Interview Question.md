@@ -364,7 +364,7 @@ To handle exceptions and global exceptions in both Spring Boot and Java applicat
 
   	} catch (ProductNotFoundException e) {
 
-      	return ResponseEntity.status(HttpStatus.NOT\_FOUND).body(null);
+      		return ResponseEntity.status(HttpStatus.NOT\_FOUND).body(null);
 
   	}
 
@@ -372,31 +372,21 @@ To handle exceptions and global exceptions in both Spring Boot and Java applicat
 
 **Global Exception Handling:**
 
-* Use @ControllerAdvice to define a global exception handler.
+* Use @ControllerAdvice to define a global exception handler.  
+  @ControllerAdvice  
+  public class GlobalExceptionHandler {  
+  	@ExceptionHandler(ProductNotFoundException.class)  
+  	public ResponseEntity\<String\> handleProductNotFound(ProductNotFoundException ex) {  
+      		return ResponseEntity.status(HttpStatus.NOT\_FOUND).body(ex.getMessage());  
+  	}  
+    
+  	@ExceptionHandler(Exception.class)  
+  	public ResponseEntity\<String\> handleGenericException(Exception ex) {  
+      		return ResponseEntity.status(HttpStatus.INTERNAL\_SERVER\_ERROR)
 
-  @ControllerAdvice
+  .body("An error occurred");
 
-  public class GlobalExceptionHandler {
-
-      
-
-  	@ExceptionHandler(ProductNotFoundException.class)
-
-  	public ResponseEntity\<String\> handleProductNotFound(ProductNotFoundException ex) {
-
-      	return ResponseEntity.status(HttpStatus.NOT\_FOUND).body(ex.getMessage());
-
-  	}
-
-
-  	@ExceptionHandler(Exception.class)
-
-  	public ResponseEntity\<String\> handleGenericException(Exception ex) {
-
-      	return ResponseEntity.status(HttpStatus.INTERNAL\_SERVER\_ERROR).body("An error occurred");
-
-  	}
-
+  	}  
   }
 
 **Custom Exception Class:**
@@ -419,13 +409,15 @@ To handle exceptions and global exceptions in both Spring Boot and Java applicat
 
 * Use try-catch blocks for handling specific exceptions.  
   public void readFile(String filePath) {  
-  	try {  
+  	try {
+
       	BufferedReader reader \= new BufferedReader(new FileReader(filePath));  
-      	// process the file  
+      	// process the file
+
   	} catch (FileNotFoundException e) {  
-      	System.out.println("File not found: " \+ e.getMessage());  
+      		System.out.println("File not found: " \+ e.getMessage());  
   	} catch (IOException e) {  
-      	System.out.println("Error reading file: " \+ e.getMessage());  
+      		System.out.println("Error reading file: " \+ e.getMessage());  
   	}  
   }
 
@@ -437,7 +429,7 @@ To handle exceptions and global exceptions in both Spring Boot and Java applicat
 
   	public InvalidUserInputException(String message) {
 
-      	super(message);
+      		super(message);
 
   	}
 
@@ -449,7 +441,7 @@ To handle exceptions and global exceptions in both Spring Boot and Java applicat
 
   	if (input \== null || input.isEmpty()) {
 
-      	throw new InvalidUserInputException("Input cannot be empty");
+      		throw new InvalidUserInputException("Input cannot be empty");
 
   	}
 
@@ -472,7 +464,7 @@ public class ConsumerService {
 	private final RestTemplate restTemplate;
 
 	public ConsumerService(RestTemplate restTemplate) {  
-    	this.restTemplate \= restTemplate;  
+    		this.restTemplate \= restTemplate;  
 	}
 
 	public Product getProductById(Long id) {  
@@ -502,25 +494,16 @@ Service Discovery with Eureka (Optional):
 
 Example using RabbitMQ:
 
-* Producer Service:
-
-  @Service
-
-  public class ProducerService {
-
-  	@Autowired
-
-  	private RabbitTemplate rabbitTemplate;
-
-
-  	public void sendMessage(String message) {
-
-      	rabbitTemplate.convertAndSend("exchange", "routingKey", message);
-
-  	}
-
-  }
-
+* Producer Service:  
+  @Service  
+  public class ProducerService {  
+  	@Autowired  
+  	private RabbitTemplate rabbitTemplate;  
+    
+  	public void sendMessage(String message) {  
+      		rabbitTemplate.convertAndSend("exchange", "routingKey", message);  
+  	}  
+  }  
 * Consumer Service:
 
   @Service
@@ -531,7 +514,7 @@ Example using RabbitMQ:
 
   	public void receiveMessage(String message) {
 
-      	System.out.println("Received: " \+ message);
+      		System.out.println("Received: " \+ message);
 
   	}
 
@@ -559,7 +542,7 @@ Example using RabbitMQ:
 
   	public void createOrder(Order order) {
 
-      	kafkaTemplate.send("order-topic", order);
+      		kafkaTemplate.send("order-topic", order);
 
   	}
 
@@ -1008,6 +991,62 @@ In summary, streams provide a powerful way to process collections in Java 8 usin
 
 # OOPs, JDBC, Serialisation, Threads, Collection, Map, How internally HashSet.
 
+Let's delve into the internal workings of `HashMap` and `HashSet` in Java's Collection Framework. Since `HashSet` is implemented using `HashMap` internally, understanding `HashMap` is crucial.
+
+**HashMap Internal Working:** `HashMap` stores data in key-value pairs. It uses a technique called *hashing* to efficiently store and retrieve elements.
+
+1. **Hashing:**  
+   * When you put a key-value pair into a `HashMap`, the key's `hashCode()` method is called to generate an integer hash code.  
+   * This hash code is then used to determine the *bucket* (index in an internal array) where the entry will be stored.  
+2. **Internal Array (Bucket Array or Table):**  
+   * `HashMap` maintains an internal array of `Node` objects (before Java 8\) or `Entry` objects (in older versions) or now `Node<K,V>` (from Java 8). This array is often referred to as the "bucket array" or "table". Each index in this array is a "bucket."  
+3. **Collision Handling (Chaining or Separate Chaining):**  
+   * It's possible for different keys to produce the same hash code (a *collision*). `HashMap` handles collisions using *chaining* (also known as *separate chaining*).  
+   * Each bucket in the array actually holds a linked list of `Node` objects. If two keys hash to the same bucket, both entries are stored in the same linked list at that bucket's index.  
+4. **Node Structure (Java 8 and later):**  
+   * In Java 8, a significant optimization was introduced. When a bucket's linked list becomes too long (reaches a threshold, typically 8), it is converted into a *balanced tree* (specifically, a *red-black tree*). This improves performance in worst-case scenarios where many keys hash to the same bucket.  
+   * The `Node` class (or `Entry` in older versions) stores the key, value, hash code, and a pointer to the next `Node` in the linked list (or tree node).  
+5. **Putting an Element:**  
+   * Calculate the hash code of the key.  
+   * Determine the bucket index using `index = hash & (table.length - 1)` (this is a fast way to get the index within the array bounds).  
+   * If the bucket is empty, create a new `Node` and place it in the bucket.  
+   * If the bucket is not empty (collision):  
+     * Iterate through the linked list (or tree) at that bucket.  
+     * If a key with the same `equals()` method already exists, update the value.  
+     * Otherwise, add a new `Node` to the end of the list (or insert into the tree).  
+6. **Getting an Element:**  
+   * Calculate the hash code of the key.  
+   * Determine the bucket index.  
+   * Iterate through the linked list (or tree) at that bucket.  
+   * Use the `equals()` method to compare the keys.  
+   * If a match is found, return the corresponding value.  
+7. **Resizing:**  
+   * As more elements are added, the `HashMap` may become too full, leading to increased collisions and slower performance.  
+   * When the *load factor* (default 0.75) is reached, the `HashMap` is *resized*. A new array with double the capacity is created, and all existing entries are rehashed and redistributed into the new buckets. This is a relatively expensive operation.
+
+**HashSet Internal Working:** HashSet is implemented using HashMap internally.
+
+1. **Internal HashMap:**  
+   * `HashSet` maintains a `HashMap` instance as a private member.  
+2. **Storing Elements:**  
+   * When you add an element to a `HashSet`, it is actually stored as a *key* in the internal `HashMap`.  
+   * A dummy `Object` instance (called `PRESENT`) is used as the *value* associated with each key.  
+3. **Uniqueness:**  
+   * Because `HashMap` only allows unique keys, `HashSet` automatically enforces uniqueness of its elements. If you try to add a duplicate element, the `put()` method of the internal `HashMap` will simply return the old value (which is `PRESENT`), and the `add()` method of `HashSet` will return `false`, indicating that the element was not added.  
+4. **Operations:**  
+   * All operations on `HashSet` (add, remove, contains, etc.) are delegated to the internal `HashMap`.
+
+**Key Differences and Summary:**
+
+| Feature | HashMap | HashSet |
+| ----- | ----- | ----- |
+| Purpose | Stores key-value pairs | Stores unique elements |
+| Internal | Uses an array of linked lists/trees (buckets) | Uses a HashMap internally |
+| Element Storage | Stores key-value pairs in `Node` objects | Stores elements as keys in the internal HashMap, with a dummy value |
+| Uniqueness | Keys must be unique | Elements must be unique |
+
+In essence, `HashSet` is a simplified wrapper around `HashMap` that leverages its key uniqueness feature to store a set of unique elements. Both rely on hashing for efficient performance. Understanding `HashMap` is essential for understanding how `HashSet` works.
+
 # Stored procedure and trigger.
 
 Both \*\*stored procedures\*\* and \*\*triggers\*\* are essential components of SQL databases, allowing for the encapsulation of business logic and automation of tasks. Here’s a detailed explanation of each:
@@ -1042,8 +1081,7 @@ END;
 Invocation: To execute the stored procedure:  
 \`\`\`sql  
 EXEC GetEmployeeDetails @EmployeeID \= 1;  
-\`\`\`
-
+\`\`\`  
 **Triggers:** A trigger is a special type of stored procedure that automatically executes (or "fires") in response to specific events on a particular table or view, such as INSERT, UPDATE, or DELETE operations.
 
 Key Features
@@ -1232,6 +1270,64 @@ Conclusion:
 * Use JpaRepository if you need additional JPA-specific functionalities like pagination, sorting, and batch operations. It extends CrudRepository, so it includes all the basic CRUD features.
 
 # What is Optional Class?
+
+* **Purpose:** The `Optional` class, introduced in Java 8, is a container object that may or may not hold a non-null value.  
+* **Motivation:**  
+  * **Handling NullPointerExceptions:** Before `Optional`, dealing with null values often led to `NullPointerExceptions`, which can be difficult to debug and make code less robust.  
+  * **Improved Code Readability:** `Optional` provides a more concise and expressive way to handle potential null values, making the code easier to read and understand.
+
+**Key Methods:**
+
+* **`of(T value)`:** Creates an `Optional` instance containing the specified non-null value.  
+* **`ofNullable(T value)`:** Creates an `Optional` instance containing the specified value if it's not null; otherwise, returns an empty `Optional`.  
+* **`empty()`:** Creates an empty `Optional` instance.  
+* **`isPresent()`:** Returns `true` if the `Optional` instance contains a value, `false` otherwise.  
+* **`get()`:** Returns the value if present; otherwise, throws a `NoSuchElementException`.  
+* **`orElse(T other)`:** Returns the value if present; otherwise, returns the specified default value.1  
+* **`orElseGet(Supplier<? extends T> other)`:** Returns the value if present; otherwise, returns the result produced by the provided supplier function.  
+* **`ifPresent(Consumer<? super T> action)`:** Performs the given action if a value is present.2  
+* **`ifPresentOrElse(Consumer<? super T> action, Runnable emptyAction)`:** Performs the given action if a value is present, or the empty action otherwise.3  
+* **`map(Function<? super T, ? extends U> mapper)`:** If a value is present, applies the provided mapping function to it, and if the result is non-null, returns an `Optional`4 containing the result.  
+* **`flatMap(Function<? super T, Optional<U>> mapper)`:** If a value is present, applies the provided mapping function to it, and returns the result of the mapping; otherwise, returns an empty `Optional`.  
+* **`filter(Predicate<? super T> predicate)`:** If a value is present and the value matches the given predicate, returns an `Optional`5 containing the value, otherwise returns an empty `Optional`.
+
+  import java.util.Optional;
+
+
+  public class OptionalExample {
+
+
+      public static void main(String\[\] args) {
+
+          String name \= "John Doe";
+
+          Optional\<String\> optionalName \= Optional.ofNullable(name);
+
+
+          if (optionalName.isPresent()) {
+
+              System.out.println("Name: " \+ optionalName.get());
+
+          } else {
+
+              System.out.println("Name is not present.");
+
+          }
+
+
+          String defaultName \= optionalName.orElse("Unknown");
+
+          System.out.println("Default Name: " \+ defaultName); 
+
+      }
+
+  }
+
+**Benefits**
+
+* **Reduced Null Checks:** Eliminates the need for explicit null checks, making the code more concise and readable.6  
+* **Improved Error Handling:** Helps prevent `NullPointerExceptions` by providing a safe way to handle potential null values.  
+* **Enhanced Code Maintainability:** Makes code more maintainable by clearly indicating the possibility of null values.
 
 # D/f b/w Serialisation and Externalizable?
 
@@ -1938,12 +2034,10 @@ Fundamental Properties to Keep in Mind:
 # Callable and Future and CompletableFuture.
 
 In Java, `Callable` and `Future` are interfaces used for asynchronous programming. Here's a breakdown of their roles and how they relate to `CompletableFuture`:  
-Callable:
+**Callable**:
 
 * Represents a task that returns a result.  
 * Similar to `Runnable`, but `Callable`'s `call()` method can return a value and throw an exception.
-
-  Java
 
   import java.util.concurrent.Callable;
 
@@ -1962,12 +2056,10 @@ Callable:
 
   }
 
-Future:
+**Future**:
 
 * Represents the result of an asynchronous computation.  
 * Provides methods to check if the computation is complete, retrieve the result, and cancel the task.
-
-  Java
 
   import java.util.concurrent.ExecutorService;
 
