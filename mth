@@ -1,0 +1,3059 @@
+import { M } from '@angular/cdk/keycodes';
+import {
+    AfterViewInit,
+    ChangeDetectorRef,
+    Component,
+    ElementRef,
+    Inject,
+    NgZone,
+    OnDestroy,
+    OnInit,
+    ViewChild,
+} from '@angular/core';
+import { FormBuilder, FormGroup } from '@angular/forms';
+import { MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { EditorService } from 'app/modules/editor/editor.service';
+import customEditor from 'assets/super_build/ckeditor';
+import { MathfieldElement, convertLatexToMathMl } from 'mathlive';
+import { MathMLToLaTeX } from 'mathml-to-latex';
+import { debounceTime } from 'rxjs';
+import { update } from 'lodash';
+import { MathService } from 'app/modules/editor/service/math.service';
+
+@Component({
+    selector: 'insert-math',
+    templateUrl: './insert-math.component.html',
+    styleUrls: ['./insert-math.component.scss'],
+})
+export class InsertMathComponent implements OnInit, AfterViewInit, OnDestroy {
+    mathFormGroup: FormGroup;
+    public editor: any = customEditor;
+    tab: any = '';
+    selectedMenu: any = 'Visual';
+    mathData: any = [];
+    mathMenu: any = ['Visual', 'Latex', 'MathML'];
+    blockContent: string[] = [];
+    selectedEquation: string;
+    latex: any;
+    mathml: any;
+    ascii: any;
+    ssmlspeech: any;
+    latexValue: any;
+    mathmlValue: any;
+    mathfieldValue: any;
+
+    showPopover = false;
+    popoverPosition = { top: '0px', left: '0px' };
+    columnGap = 5;
+    rowGap = 5;
+    rowContent: Array<{
+        row: Array<{ isChecked: boolean; isSelected: boolean }>;
+    }> = [];
+    columnCount: number = 5;
+    rowInputs: number[] = [];
+    columnAlignments: string[] = [];
+    showMatrixDropdown = false;
+    customMatrix = false;
+
+    //CortexJS Mathlive
+    @ViewChild('mathfield', { static: false }) mathfield!: ElementRef;
+    @ViewChild('mathfieldContainer', { static: false })
+    mathfieldContainer!: ElementRef;
+    @ViewChild('virtualKeyboardContainer', { static: false })
+    virtualKeyboardContainer!: ElementRef;
+    timeout: any = null;
+    value: any = null;
+    virtualKeyboard!: any;
+    isBlockDisplay: any;
+    mathjaxInput: string = "";
+    mathjaxFormat: "latex" | "mathml" = "latex";
+    mathjaxOutput: string = "";
+
+    constructor(
+        private _fb: FormBuilder,
+        private _editorService: EditorService,
+        private cd: ChangeDetectorRef,
+        private ngZone: NgZone,
+        @Inject(MAT_DIALOG_DATA) public data,
+        private mathService: MathService
+    ) {}
+
+    ngOnInit(): void {
+        // console.log('editor insert math', this.editor.command, "popup data", this.data);
+        this._editorService.editorData.subscribe((res: any) => {
+            this.editor = res;
+        });
+        this.editor.editing.view.document.isFocused = false
+        this.editor.ui.focusTracker.remove();
+
+        this.mathFormGroup = this._fb.group({
+            latex: [''],
+            mathml: [''],
+            ascii: [''],
+            ssmlspeech: [''],
+            columnNumber:[''],
+            rowGap: [''],
+            columnGap: [''],
+            rowAlignemnt: [''],
+            rows: [15],
+            cols: [25],
+        });
+
+        this.updateMatrix();
+    }
+
+    ngAfterViewInit(): void {
+        this.virtualKeyboard = (window as any).mathVirtualKeyboard;
+        MathfieldElement.soundsDirectory = null;
+
+        MathfieldElement.keypressSound = {
+            spacebar: null,
+            return: null,
+            delete: null,
+            default: null,
+        };
+        MathfieldElement.plonkSound = null;
+
+        const keyboardContainer = this.virtualKeyboardContainer.nativeElement;
+        this.virtualKeyboard.container = keyboardContainer;
+        (window as any).mathVirtualKeyboard.show();
+
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+
+        mf.mathVirtualKeyboardPolicy = 'auto';
+        (window as any).mathVirtualKeyboard.layouts = this.customKeyboardLayout;
+
+        //CSS variables for dark-themed virtual keyboard
+        document.body.style.setProperty('--keyboard-accent-color', '#00bcd4');
+        document.body.style.setProperty(
+            '--keyboard-toolbar-background',
+            '#4b0082'
+        );
+        document.body.style.setProperty('--keycap-background', '#444444');
+        document.body.style.setProperty('--keycap-text', '#ffffff');
+        document.body.style.setProperty('--keycap-border', '#555555');
+        document.body.style.setProperty('--keycap-background-hover', '	#800080');
+        document.body.style.setProperty('--keyboard-toolbar-font-size', '10px');
+        document.body.style.setProperty('--keycap-font-size', '10px');
+        document.body.style.setProperty('--keycap-small-font-size', '12px');
+        document.body.style.setProperty('--keycap-extra-small-font-size', '12px');
+
+        // Sync LaTeX changes to Mathfield and MathML
+        this.mathFormGroup
+            .get('latex')
+            .valueChanges.pipe(debounceTime(500))
+            .subscribe((latex: string) => {
+                if (latex !== mf.getValue('latex')) {
+                    // Prevent looping
+                    mf.setValue(latex);
+                    this.getMathjaxMathml(latex);
+                    this.mathFormGroup
+                        .get('mathml')
+                        .setValue(this.mathjaxOutput, { emitEvent: false });
+                }
+            });
+
+        // Sync MathML changes to Mathfield and LaTeX
+        this.mathFormGroup
+            .get('mathml')
+            .valueChanges.pipe(debounceTime(500))
+            .subscribe((mathml: string) => {
+                const mathmlWithMathTag = this.isMathMLContent(mathml)
+                    ? mathml
+                    : `<math xmlns="http://www.w3.org/1998/Math/MathML">${mathml}</math>`;
+                let latex = MathMLToLaTeX.convert(mathmlWithMathTag);
+                latex = this.cleanLatex(latex);
+                
+                if (latex !== mf.getValue('latex')) {
+                    // Prevent looping
+                    mf.setValue(latex);
+                    this.mathFormGroup
+                        .get('latex')
+                        .setValue(latex, { emitEvent: false }); // Update LaTeX field
+                }
+            });
+
+        // Sync Mathfield changes to LaTeX and MathML
+        mf.addEventListener('input', () => {
+            const latex = mf.getValue('latex');
+            this.getMathjaxMathml(latex);
+            if (latex !== this.mathFormGroup.get('latex').value) {
+                this.mathFormGroup
+                    .get('latex')
+                    .setValue(latex, { emitEvent: false });
+            }
+            if (this.mathjaxOutput !== this.mathFormGroup.get('mathml').value) {
+                this.mathFormGroup
+                    .get('mathml')
+                    .setValue(this.mathjaxOutput, { emitEvent: false });
+            }
+            // mf.mathVirtualKeyboardPolicy
+        });
+
+        this.mathFieldBeforeInput(mf);
+        
+        // Ensure proper event listeners
+        this.ngZone.runOutsideAngular(() => {
+                window.addEventListener('resize', () =>
+                    this.positionPopupKeyboard()
+            );
+            document.addEventListener('focusin', this.handleFocusIn);
+            document.addEventListener('focusout', this.handleFocusOut);
+            
+            (window as any).mathVirtualKeyboard.addEventListener(
+                'geometrychange',
+                this.handleGeometryChange
+            );
+        });
+
+        if (this.data.selectedElement) {
+            const mathJaxWithSvgAndMathml = this.data.mathtex;
+            const mathMLElement = mathJaxWithSvgAndMathml.children[1];
+            const display = mathMLElement.getAttribute('display');
+
+            this.isBlockDisplay = display === 'block' ? true : false;
+            // Extracting the MathML content
+            mf.value = mathMLElement.children[0].outerHTML;
+            
+            let latex = this.data.selectedElement.getAttribute('equation');
+
+            latex = this.isMatrix(latex) ? this.addPlaceholders(latex) : latex;
+
+            mf.setValue(latex);
+            this.getMathjaxMathml(latex);
+            
+            setTimeout(() => {
+                const keyboardContainer =
+                document.getElementById('keyboard-container');
+                // document.querySelector('.ML__keyboard.is-visible')
+                if (keyboardContainer) {
+                    mf.executeCommand('moveToGroupEnd');
+                    mf.focus();
+                    (window as any).mathVirtualKeyboard.show();
+                }
+            }, 2000);
+        }
+
+        mf.addEventListener('paste', async (event: ClipboardEvent) => {
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) return;
+
+            const pastedContent = clipboardData.getData('text/plain');
+
+            if (this.isMathMLContent(pastedContent)) {
+                const mathMLWithMathTag = `${pastedContent}`;
+
+                let latex = MathMLToLaTeX.convert(mathMLWithMathTag);
+                latex = this.cleanLatex(latex);
+
+                mf.setValue(latex);
+                event.preventDefault();
+            }
+        });
+    }
+
+    getMathjaxMathml(mathjaxInput: string) {
+        this.mathService.convert(mathjaxInput, this.mathjaxFormat).then((result) => {
+          this.mathjaxOutput = result;
+        }).catch((error) => {
+          console.error("Conversion error:", error);
+        });
+    }
+
+    cleanLatex(inputLatex: string): string {
+    
+        // Replace multiple commas with a single comma
+        let cleanedLatex = inputLatex.replace(/,{2,}/g, ',');
+    
+        // Remove commas around parentheses
+        cleanedLatex = cleanedLatex.replace(/,\(/g, '(').replace(/\),/g, ')');
+    
+        // Remove commas before a backslash
+        cleanedLatex = cleanedLatex.replace(/,\\(?!\\)/g, '\\');
+    
+        // Remove commas before and after any special character
+        cleanedLatex = cleanedLatex.replace(/,([\+\-\*=\|<>])/g, '$1'); // Comma before
+        cleanedLatex = cleanedLatex.replace(/([\+\-\*=\|<>]),/g, '$1'); // Comma after
+    
+        // Remove commas between \textrm{} blocks, including outside curly braces
+        cleanedLatex = cleanedLatex.replace(/\\textrm\{\s*\}(.*?)\\textrm\{\s*\}/g, (match, content) => {
+            const cleanedContent = content.replace(/,/g, '').trim(); // Remove commas and extra spaces
+            return `\\textrm{}${cleanedContent}\\textrm{}`;
+        });
+    
+        // Remove commas within \left(...\right)
+        cleanedLatex = cleanedLatex.replace(/\\left\((.*?)\\right\)/g, (match, content) => {
+            const cleanedContent = content.replace(/,/g, '').trim(); // Remove commas inside the group
+            return `\\left(${cleanedContent}\\right)`;
+        });
+
+        // Replace \hdots with Unicode ellipsis (⋯)
+        cleanedLatex = cleanedLatex.replace(/\\hdots/g, '⋯');
+
+        // Replace \&\text{nbsp}; with \textrm{}
+        cleanedLatex = cleanedLatex.replace(/\\&\\text\{nbsp\};/g, '\\textrm{ }');
+    
+        // Clean around specific commands
+        cleanedLatex = this.cleanLatexAroundCommands(cleanedLatex);
+        cleanedLatex = this.ensureArrayEnvironment(cleanedLatex);
+    
+        return cleanedLatex;
+    } 
+
+    cleanLatexAroundCommands(inputLatex: string): string {
+        // 
+        const commands: string[] = ["neq", "in"]
+        // A dynamic regex pattern to match the specified LaTeX commands
+        const commandPattern = commands.map(cmd => `\\\\${cmd}`).join('|'); // Escaping backslash
+        const regex = new RegExp(`,?(${commandPattern}),?`, 'g'); // Match comma before or after the command
+    
+        // Replace matched commas around the commands with a single space
+        return inputLatex.replace(regex, (match, command) => {
+            return ` ${command} `;
+        });
+    }
+    
+    ensureArrayEnvironment(latex: string): string {
+        // Check if the content already uses a matrix-like environment  
+        const matrixEnvironments = [
+            '\\begin{matrix}', '\\begin{bmatrix}', '\\begin{Bmatrix}',
+            '\\begin{pmatrix}', '\\begin{vmatrix}', '\\begin{Vmatrix}'
+        ];
+        const hasMatrixEnvironment = matrixEnvironments.some(env => latex.includes(env));
+        
+        // Check if the content has line breaks `\\` without an existing array or matrix
+        const hasLineBreaks = /\\\\/.test(latex);
+        const hasArrayEnvironment = latex.includes('\\begin{array}');
+        
+        // If there are line breaks but no matrix or array environment, wrap with array
+        if (hasLineBreaks && !hasMatrixEnvironment && !hasArrayEnvironment) {
+            const alignmentSpecifiers = 'ccccc'; 
+            return `\\begin{array}{${alignmentSpecifiers}}\n${latex}\n\\end{array}`;
+        }
+    
+        // Otherwise, return the LaTeX as-is
+        return latex;
+    }
+
+    toggleMatrixDropdown() {
+        this.showMatrixDropdown = !this.showMatrixDropdown;
+    }
+
+    toggleMatrixFormat() {
+        this.showPopover = !this.showPopover;
+    }
+
+    customMatrixWithRC() {
+        this.customMatrix = !this.customMatrix;
+        this.toggleMatrixDropdown();
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        let row = this.mathFormGroup.get("rows").value;
+        let col = this.mathFormGroup.get("cols").value;
+        let masterRow = this.mathFormGroup.get("rowGap").value;
+        let individualRowInput = this.rowInputs;
+        const nonZeroRowInput = {};
+        const nonZeroColumnInputs = {};
+   
+        // console.log("row", individualRowInput, "Col", this.columnAlignments);
+        individualRowInput.forEach((value, index) => {
+            if (value !== 0) {
+                nonZeroRowInput[index] = value;
+            }
+        });
+
+        this.columnAlignments.forEach((value, index) => {
+            if (value) {
+                nonZeroColumnInputs[index] = value;
+            }
+        });
+
+        // console.log('Row Inputs:', nonZeroRowInput);
+        // console.log('Column Inputs:', nonZeroColumnInputs);
+
+        let matrixRowColumn = this.createMatrixLaTeX(row, col, nonZeroRowInput, nonZeroColumnInputs, masterRow);
+
+        this.cd.detectChanges();
+        this.mathFormGroup.get('rows').reset();
+        this.mathFormGroup.get('cols').reset();
+        this.mathFormGroup.get('rowAlignemnt').reset();
+        this.mathFormGroup.get('columnGap').reset();
+        this.mathFormGroup.get('rowGap').reset();
+
+        const existingValue = mf.getValue('latex');
+        const newValue = existingValue + matrixRowColumn;
+
+        existingValue ? mf.setValue(newValue) : mf.setValue(matrixRowColumn);
+    }
+
+    initializeMatrix(rows: number, cols: number) {
+        this.rowContent = Array.from({ length: rows }, () => ({
+            row: Array.from({ length: cols }, () => ({
+                isChecked: true,
+                isSelected: false,
+            })),
+        }));
+
+        this.columnAlignments = Array.from({ length: cols }, () => '');
+        this.rowInputs = new Array(rows).fill(0);
+    }
+
+    updateMatrix() {
+        const rows = this.mathFormGroup.get('rows')?.value || 5;
+        const cols = this.mathFormGroup.get('cols')?.value || 5;
+        this.columnCount = cols;
+        this.initializeMatrix(rows, cols);
+    }
+
+    getCol(row: number, col: number) {
+        if (row === col) {
+            this.hoverLayer(row);
+        } else {
+            this.colHoverLayer(row, col);
+        }
+    }
+    
+    hoverLayer(index: number) {
+        this.rowContent.forEach((x, i) => {
+            if (i <= index) {
+                x.row.forEach((y, j) => {
+                    y.isChecked = index >= j ? false : true;
+                });
+            }
+        });
+    }
+
+    colHoverLayer(index: number, temp: number) {
+        this.rowContent.forEach((x, i) => {
+            if (i <= index) {
+                x.row.forEach((y, j) => {
+                    y.isChecked = j <= temp ? false : true;
+                });
+            }
+        });
+    }
+
+    selectedRow(row: number, col: number) {
+        
+        this.mathFormGroup.get('rows')?.setValue(row + 1);
+        this.mathFormGroup.get('cols')?.setValue(col + 1);
+
+        this.rowContent.forEach((x) => {
+            x.row.forEach((y) => {
+                y.isSelected = false;
+            });
+        });
+        this.rowContent[row].row[col].isSelected = true;
+    }
+
+    clearCol() {
+        this.rowContent.forEach((x) => {
+            x.row.forEach((y) => {
+                y.isChecked = true;
+            });
+        });
+    }
+
+    createMatrixLaTeX(
+        rows: number,
+        cols: number,
+        rowSpacing?: any,
+        columnAlignments?: any,
+        masterRowSpacing?: number | undefined
+    ): string {
+        let latex = '';
+        let alignment = '';
+    
+        if (masterRowSpacing) {
+            latex += `\\renewcommand{\\arraystretch}{${masterRowSpacing}}\n`;
+        }
+    
+        for (let col = 0; col < cols; col++) { 
+            if (columnAlignments && columnAlignments[col]) {
+                alignment += alignmentKey(columnAlignments[col]);
+            } else {
+                alignment += 'c';
+            }
+        }
+    
+        function alignmentKey(align) {
+            switch (align) {
+                case 'left':
+                    return 'l';
+                case 'center':
+                    return 'c';
+                case 'right':
+                    return 'r';
+                default:
+                    return 'c';
+            }
+        }
+    
+        latex += `\\begin{array}{${alignment}}\n`;
+    
+        for (let row = 0; row < rows; row++) {
+            let rowContent = [];
+            for (let col = 0; col < cols; col++) {
+                rowContent.push('\\placeholder{}');
+            }
+            latex += rowContent.join(' & ');
+    
+            if (row < rows - 1) {
+                if (rowSpacing && rowSpacing[row]) {
+                    latex += ` \\\\[${rowSpacing[row]}em]`;
+                } else {
+                    latex += ' \\\\';
+                }
+            }
+            latex += '\n';
+        }
+    
+        latex += '\\end{array}';
+    
+        return latex;
+    }
+
+    isMatrixSelected(mf: MathfieldElement): boolean {
+        try {
+            const latex = mf.getValue('latex-expanded');
+            const cursorPosition = mf.position;
+            const matrices = [
+                ...latex.matchAll(/\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|array)\}\{?([clr]*)\}?([\s\S]*?)\\end\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|array)\}/g),
+            ];
+            const matrixEnvironments = [
+                '\\begin{matrix}', '\\begin{bmatrix}', '\\begin{Bmatrix}',
+                '\\begin{pmatrix}', '\\begin{vmatrix}', '\\begin{Vmatrix}'
+            ];
+            console.log("matrices", matrices)
+
+            return matrices.some((matrix) => {
+                const start = latex.indexOf(matrix[0]);
+                const end = start + matrix[0].length;
+                return cursorPosition >= start && cursorPosition <= end;
+            });
+        } catch (error) {
+            console.error('Error in isMatrixSelected:', error);
+            return false;
+        }
+    }
+
+    convertMatrixToArray(latexCode: string): string {
+        // Regular expression to match different matrix environments
+        const matrixRegex = /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}([\s\S]*?)\\end\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}/g;
+    
+        // Replace matched matrix environments with the corresponding array environments
+        return latexCode.replace(matrixRegex, (match, envType, content) => {
+            const rows = content.split('\\\\'); // Split into rows
+            const columnCount = (rows[0].split('&').length);
+            let alignment = 'c'.repeat(columnCount);
+
+            switch (envType) {
+                case 'matrix':
+                    return `\\begin{array}{${alignment}}${content}\\end{array}`;
+                case 'pmatrix':
+                    return `\\left( \\begin{array}{${alignment}}${content}\\end{array} \\right)`;
+                case 'bmatrix':
+                    return `\\left[ \\begin{array}{${alignment}}${content}\\end{array} \\right]`;
+                case 'Bmatrix':
+                    return `\\left\\{ \\begin{array}{${alignment}}${content}\\end{array} \\right\\}`;
+                case 'vmatrix':
+                    return `\\left| \\begin{array}{${alignment}}${content}\\end{array} \\right|`;
+                case 'Vmatrix':
+                    return `\\left|| \\begin{array}{${alignment}}${content}\\end{array} \\right||`;
+                case 'smallmatrix':
+                    return `\\begin{array}{${alignment}}${content}\\end{array}`; // Small matrices remain as arrays
+                default:
+                    return match; // Return the original match if no conversion is applicable
+            }
+        });
+    }
+
+    showMatrixPopover(): void {
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        const rect = mf.getBoundingClientRect();
+
+        this.popoverPosition = {
+            top: `${rect.top - 50}px`,
+            left: `${rect.left}px`,
+        };
+
+        // this.showPopover = true;
+
+        this.cd.detectChanges();
+    }
+
+    hideMatrixPopover(): void {
+        this.showPopover = false;
+        this.cd.detectChanges();
+    }
+
+    setAlignment(alignment: 'left' | 'center' | 'right'): void {
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        const cursorPosition = mf.position;
+        let fullLatex = mf.getValue('latex-expanded');
+        fullLatex = this.convertMatrixToArray(fullLatex);
+        mf.setValue(fullLatex);
+
+        // Match all matrices in the LaTeX string
+        const matrices = [
+            ...fullLatex.matchAll(/\\begin\{array\}(.*?)\\end\{array\}/g),
+        ];
+
+        let activeMatrix = matrices.length <= 1 ? matrices[0][0] : this.getActiveMatrix(cursorPosition);
+
+        if (activeMatrix) {
+            const alignmentChar =
+                alignment === 'left' ? 'l' : alignment === 'right' ? 'r' : 'c';
+            const updatedLatex = this.updateMatrixAlignment(
+                fullLatex,
+                activeMatrix,
+                cursorPosition,
+                alignmentChar
+            );
+
+            mf.setValue(updatedLatex, { format: 'latex' });
+        } else {
+            console.warn('Cursor is not in a matrix');
+        }
+
+        this.toggleMatrixFormat();
+    }
+
+    getActiveMatrix(cursorPosition: number): string | null {
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        const fullLatex = mf.getValue('latex-expanded');
+        const ascii = mf.getValue('ascii-math');
+        let activeMatrix: string;
+
+        const latex = mf.getValue([0, cursorPosition]);
+        let checkLatex = '';
+        let lt: string;
+        let matrixEndPosition: number;
+        let count = 0;
+
+        let endIndex = -1;
+        for (let i = cursorPosition; i < ascii.length; i++) {
+            lt = mf.getValue(0, i, 'latex');
+            count++;
+            // Checking for \end{array} using slice
+            // console.log('endArray', lt.slice(-10, -1));
+            if (lt.slice(-10, -1) === 'end{array') {
+                endIndex = i;
+                matrixEndPosition = endIndex;
+                count += 11;
+                break;
+            }
+        }
+
+        if (endIndex === -1) {
+            console.warn('No \\end{array} found after the cursor position');
+            return null;
+        }
+
+        // Step 1: Loop backward to find the nearest \begin{array}
+        let beginIndex = -1;
+        let columnCount = 0;
+        for (let i = matrixEndPosition; i >= 0; i--) {
+            let latexStart = mf.getValue(i, matrixEndPosition, 'latex');
+
+            latexStart[i] === '&' ? columnCount++ : 1;
+            // console.log('latexStart to end', latexStart);
+            if (latexStart.slice(1, 13) === 'begin{array}') {
+                beginIndex = i;
+                activeMatrix = latexStart;
+                break;
+            }
+        }
+
+        // console.log('latex with offsets', latex, '||||', checkLatex);
+        if (beginIndex === -1) {
+            console.warn('No \\begin{array} found before the cursor position');
+            return null;
+        }
+        // Step 3: Extract the active matrix using the begin and end indices
+        // const activeMatrix = fullLatex.slice(beginIndex, endIndex);
+       
+        // Replace double backward slashes first to avoid conflicts
+        // let outputString = activeMatrix.replace(/\\/g, "\\\\");
+
+        // const actualPosition = outputString.length - count;
+        return activeMatrix;
+    }
+
+    updateMatrixAlignment(
+        matrixLatex: string,
+        targetMatrix: string,
+        cursorPosition: number,
+        alignmentChar: string
+    ): string {
+        const envRegex = /\\begin\{array\}\{([lcr]+)\}/;
+        const match = targetMatrix.match(envRegex);
+
+        if (match) {
+            let alignments = match[1].split('');
+
+            let colIndex = this.mathFormGroup.get('columnNumber').value;
+            colIndex = Number(colIndex)-1;
+
+            if (colIndex >= 0 && colIndex < alignments.length) {
+                alignments[colIndex] = alignmentChar;
+                const updatedTargetMatrix = targetMatrix.replace(
+                    envRegex,
+                    `\\begin{array}{${alignments.join('')}}`
+                );
+                return matrixLatex.replace(targetMatrix, updatedTargetMatrix);
+            }
+        }
+
+        return matrixLatex;
+    }
+
+    determineColumnFromCursor(
+        matrixLatex: string, cursorPosition: number
+    ):  number {
+        const rows = matrixLatex.split('\\\\');
+        let charCount = 0;
+
+        for (const row of rows) {
+            const columns = row.trim().split('&');
+
+            for (let colIndex = 0; colIndex < columns.length; colIndex++) {
+                charCount += columns[colIndex].length;
+
+                if (charCount >= cursorPosition) {
+                    return colIndex;
+                }
+
+                charCount += 1; // Account for '&' between columns
+            }
+
+            charCount += 2; // Account for '\\\\' line break between rows
+        }
+
+        return -1;
+    }
+    
+    setGap(type: 'column' | 'row', value: number): void {
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        const command =
+            type === 'column'
+                ? `\\setlength{\\tabcolsep}{${value}pt}`
+                : `\\renewcommand{\\arraystretch}{${value / 10}}`;
+        mf.executeCommand('insert', command);
+    }
+
+    mathFieldBeforeInput(mf: any) {
+        mf.addEventListener('beforeinput', (ev: any) => {
+            let mfInstance = ev.target;
+            let mode = mfInstance.mode;
+
+            const cursor = 'thecursor';
+            const magic = `\\placeholder[${cursor}]{}`;
+            const dslash = '\\\\ ';
+            const groupstt = '\\placeholder[cursorgroupstt]{}';
+            const groupend = '\\placeholder[cursorgroupend]{}';
+            const displn = '\\displaylines';
+            const alignedEnv = '\\begin{aligned}';
+            const endAlignedEnv = '\\end{aligned}';
+            const equalOperators = ['=', '≠'];
+            const plusOperators = ['+', '-', '×', '÷'];
+
+            function restore_cursor(value) {
+                mfInstance.value = value;
+                mfInstance.executeCommand(['moveToMathfieldStart']);
+                for (let ph in mfInstance.getPrompts()) {
+                    mfInstance.executeCommand(['moveToNextPlaceholder']);
+                    if (ph == cursor) break;
+                }
+                mfInstance.executeCommand(['moveToNextChar']);
+                mfInstance.executeCommand(['deleteBackward']);
+                if (mode == 'text')
+                    mfInstance.executeCommand(['switchMode', mode]);
+            }
+
+            // function splitEquation() {
+            //     let cursorPosition = mfInstance.position;
+            //     let fullLatex = mfInstance.getValue();
+
+            //     let leftPart = mfInstance.getValue(0, cursorPosition);
+            //     let rightPart = mfInstance.getValue(
+            //         cursorPosition,
+            //         fullLatex.length
+            //     );
+
+            //     const arrayEnv = '\\begin{array}{rcl}';
+            //     const endArrayEnv = '\\end{array}';
+
+            //     if (fullLatex.includes('=')) {
+            //         // Check if the left part contains "=" and the right part starts with an operator
+            //         if (leftPart.includes('=') || leftPart.includes('≠')) {
+            //             let lastCharBeforeCursor =
+            //                 leftPart[leftPart.length - 1];
+            //             let firstCharAfterCursor = rightPart[0];
+
+            //             let newValue = '';
+            //             let firstCol = leftPart.split('=')[0].trim();
+            //             let secondCol = '=';
+            //             let thirdCol = leftPart.split('=')[1]
+            //                 ? leftPart.split('=')[1].trim()
+            //                 : '';
+            //             let fifthCol = leftPart.split('=')[2]
+            //                 ? leftPart.split('=')[2].trim()
+            //                 : '';
+            //             let remainingRightPart = rightPart.trim();
+
+            //             if (plusOperators.includes(firstCharAfterCursor)) {
+            //                 newValue = ``;
+
+            //                 if (fifthCol && !(fifthCol.includes("="))){
+            //                     newValue = `
+            //                         ${arrayEnv}
+            //                         ${firstCol} & ${secondCol} & ${thirdCol} 
+            //                         ${dslash}
+            //                         \\placeholder{} & ${secondCol} & ${fifthCol} 
+            //                         ${dslash}
+            //                         \\placeholder{} & \\placeholder{} & 
+            //                         ${remainingRightPart}${endArrayEnv}`;
+            //                 } else if( thirdCol && fifthCol === undefined) {
+            //                     newValue = `
+            //                     ${arrayEnv}
+            //                     ${firstCol} & ${secondCol} & ${thirdCol} ${dslash}
+            //                     \\placeholder{} & \\placeholder{} & 
+            //                     ${remainingRightPart}
+            //                     ${endArrayEnv}`;
+            //                 }
+
+            //                 restore_cursor(newValue);
+            //                 ev.preventDefault();
+            //             } else if (
+            //                 equalOperators.includes(firstCharAfterCursor)
+            //             ) {
+            //                 let fifthCol = remainingRightPart.split('=')[1];
+
+            //                 newValue = `
+            //                     ${arrayEnv}
+            //                     ${firstCol} & ${secondCol} & ${thirdCol} ${dslash}
+            //                     \\placeholder{} & ${secondCol} & ${fifthCol} ${endArrayEnv}`;
+
+            //                 restore_cursor(newValue);
+            //                 ev.preventDefault();
+            //             }
+            //         } else {
+            //             console.log('pass \\begin{array} matrix logic here');
+            //         }
+            //     } 
+            //     // else {
+            //     //     mfInstance.executeCommand(['insert', magic]);
+            //     //     mfInstance.executeCommand(['moveToGroupStart']);
+            //     //     mfInstance.executeCommand(['insert', groupstt]);
+            //     //     mfInstance.executeCommand(['moveToGroupEnd']);
+            //     //     mfInstance.executeCommand(['insert', groupend]);
+
+            //     //     let value = mfInstance.value;
+            //     //     if (
+            //     //         value.includes(dslash + groupstt) ||
+            //     //         value.includes(displn + groupstt)
+            //     //     ) {
+            //     //         value = value.replace(groupstt, ' ');
+            //     //         value = value.replace(groupend, '');
+            //     //     } else {
+            //     //         value = value.replace(groupstt, `{${displn} `);
+            //     //         value = value.replace(groupend, '}');
+            //     //     }
+
+            //     //     value = value.replace(magic, dslash + magic);
+            //     //     restore_cursor(value);
+            //     //     ev.preventDefault();
+            //     // }
+            // }
+
+            function splitEquation() {
+                const fullLatex = mfInstance.getValue();
+
+                // Split the equation into parts using the '=' operator
+                const parts = fullLatex.split('=').map((part) => part.trim());
+
+                if (parts.length < 2) {
+                    console.log('Not a valid equation to split');
+                    return;
+                }
+
+                // Determine the LaTeX structure dynamically
+                const arrayEnv = '\\begin{array}{rcl}';
+                const endArrayEnv = '\\end{array}';
+                const dslash = '\\\\';
+
+                let rows = [];
+                let rowTemplate = (left: string, middle: string, right: string) =>
+                    `${left} & ${middle} & ${right}`;
+
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const left = i === 0 ? parts[i] : '\\placeholder{}';
+                    const middle = '=';
+                    const right = parts[i + 1];
+
+                    rows.push(rowTemplate(left, middle, right));
+                }
+
+                // Construct the new value dynamically
+                const newValue = `
+                    ${arrayEnv}
+                    ${rows.join(` ${dslash} `)}
+                    ${endArrayEnv}
+                `;
+
+                restore_cursor(newValue);
+                ev.preventDefault();
+            }
+
+
+            if (ev.inputType === 'insertLineBreak') {
+                mfInstance.executeCommand(['switchMode', 'math']);
+                splitEquation();
+                ev.preventDefault();
+            }
+        });
+    }
+
+    isMathMLContent(content: string): boolean {
+        return (
+            content.trim().startsWith('<math') &&
+            content.trim().endsWith('</math>')
+        );
+    }
+
+    openMenu(menu: string) {
+        if (this.mathfield) {
+            const mf = this.mathfield.nativeElement as MathfieldElement;
+
+            const latexValue = mf.getValue('latex');
+            // const mathmlValue = this.getMathjaxMathml(latexValue);
+            const asciiValue = mf.getValue('ascii-math');
+            const ssmlspeech = mf.getValue('spoken-ssml');
+
+            if (menu === 'MathML') {
+                this.selectedMenu = 'MathML';
+                // Update MathML form control only if the content is different
+                if (this.mathFormGroup.get('mathml').value !== this.mathjaxOutput) {
+                    this.mathFormGroup
+                        .get('mathml')
+                        .setValue(this.mathjaxOutput, { emitEvent: false });
+                }
+            } else if (menu === 'Latex') {
+                this.selectedMenu = 'Latex';
+                // Update LaTeX form control only if the content is different
+                if (this.mathFormGroup.get('latex').value !== latexValue) {
+                    this.mathFormGroup
+                        .get('latex')
+                        .setValue(latexValue, { emitEvent: false });
+                }
+            } else if (menu === 'Speech') {
+                this.selectedMenu = 'Speech';
+                // Update LaTeX form control only if the content is different
+                if (this.mathFormGroup.get('ssmlspeech').value !== ssmlspeech) {
+                    this.mathFormGroup
+                        .get('ssmlspeech')
+                        .setValue(ssmlspeech, { emitEvent: false });
+                }
+            } else if (menu === 'ASCII') {
+                this.selectedMenu = 'ASCII';
+                // Update LaTeX form control only if the content is different
+                if (this.mathFormGroup.get('ascii').value !== asciiValue) {
+                    this.mathFormGroup
+                        .get('ascii')
+                        .setValue(asciiValue, { emitEvent: false });
+                }
+            } else {
+                this.selectedMenu = 'Visual';
+
+                setTimeout(() => {
+                    if (mf.getValue('latex') !== latexValue) {
+                        mf.setValue(latexValue); // Update mathfield only if necessary
+                    }
+                    const keyboardContainer =
+                        document.getElementById('keyboard-container');
+                    if (keyboardContainer) {
+                        keyboardContainer.style.display = 'block';
+                    }
+                }, 1000);
+
+                mf.executeCommand('moveToGroupEnd');
+            }
+        }
+    }
+
+    ngOnDestroy() {
+        this.ngZone.runOutsideAngular(() => {
+            window.removeEventListener(
+                'resize',
+                () => this.positionPopupKeyboard
+            );
+
+            document.removeEventListener('focusin', this.handleFocusIn);
+            document.removeEventListener('focusout', this.handleFocusOut);
+
+            (window as any).mathVirtualKeyboard.removeEventListener(
+                'geometrychange',
+                this.handleGeometryChange
+            );
+        });
+    }
+
+    handleFocusIn = (ev: FocusEvent) => {
+        const keyboardContainer = document.getElementById(
+            'keyboard-container'
+        ) as HTMLElement;
+
+        if ((ev.target as HTMLElement).tagName === 'MATH-FIELD') {
+            this.positionPopupKeyboard(ev.target as HTMLElement);
+        } else {
+            keyboardContainer.style.display = 'none';
+            (window as any).mathVirtualKeyboard.visible = false;
+        }
+    };
+
+    handleFocusOut = (ev: FocusEvent) => {
+        const keyboardContainer = document.getElementById(
+            'keyboard-container'
+        ) as HTMLElement;
+        if ((ev.target as HTMLElement).tagName === 'MATH-FIELD') {
+            keyboardContainer.style.display = 'none';
+            (window as any).mathVirtualKeyboard.visible = false;
+        }
+    };
+
+    handleGeometryChange = () => {
+        const keyboardContainer = document.getElementById(
+            'keyboard-container'
+        ) as HTMLElement;
+        keyboardContainer.style.height = `${
+            (window as any).mathVirtualKeyboard.boundingRect.height
+        }px`;
+    };
+
+    positionPopupKeyboard = (target?: HTMLElement) => {
+        const mf = target || (document.activeElement as HTMLElement);
+        
+        const keyboardContainer = document.getElementById(
+            'keyboard-container'
+        ) as HTMLElement;
+
+        if (mf.tagName !== 'MATH-FIELD') {
+            keyboardContainer.style.display = 'none';
+            return;
+        }
+
+        const r = mf.getBoundingClientRect();
+        keyboardContainer.style.display = 'block';
+        const w = keyboardContainer.offsetWidth;
+        keyboardContainer.style.top = `${r.bottom + 16}px`;
+        keyboardContainer.style.left = `${r.left + r.width / 2 - w / 2}px`;
+        keyboardContainer.style.zIndex = `1500`;
+        (window as any).mathVirtualKeyboard.show();
+    };
+
+    onInsert() {
+        const mf = this.mathfield.nativeElement as MathfieldElement;
+        const display = this.isBlockDisplay;
+
+        let value = mf.getValue('latex');
+        // console.log('value before submit', value);
+        let formattedValue = value;
+
+        if (value.includes('placeholder')) {
+            formattedValue = this.removePlaceholders(value);
+        }
+
+        this.editor.execute('math', formattedValue, display, 'script', false);
+    }
+
+    removePlaceholders(latex: string): string {
+        return latex.replace(/\\placeholder\{\}/g, '');
+    }
+
+    isMatrix(latexCode: string): boolean {
+        // Regular expressions to match different matrix environments
+        const matrixRegex = /\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}/;
+        const pmatrixRegex = /\\begin\{pmatrix\}([\s\S]*?)\\end\{pmatrix\}/;
+        const bmatrixRegex = /\\begin\{bmatrix\}([\s\S]*?)\\end\{bmatrix\}/;
+        const BmatrixRegex = /\\begin\{Bmatrix\}([\s\S]*?)\\end\{Bmatrix\}/;
+        const vmatrixRegex = /\\begin\{vmatrix\}([\s\S]*?)\\end\{vmatrix\}/;
+        const VmatrixRegex = /\\begin\{Vmatrix\}([\s\S]*?)\\end\{Vmatrix\}/;
+        const smallmatrixRegex = /\\begin\{smallmatrix\}([\s\S]*?)\\end\{smallmatrix\}/;
+        const arrayRegex = /\\begin\{array\}([\s\S]*?)\\end\{array\}/;
+    
+        // Check if the latexCode matches any of the matrix formats
+        return (
+            matrixRegex.test(latexCode) ||
+            pmatrixRegex.test(latexCode) ||
+            bmatrixRegex.test(latexCode) ||
+            BmatrixRegex.test(latexCode) ||
+            vmatrixRegex.test(latexCode) ||
+            VmatrixRegex.test(latexCode) ||
+            smallmatrixRegex.test(latexCode) ||
+            arrayRegex.test(latexCode)
+        );
+    }
+    
+    addPlaceholders(latexCode: string): string {
+        // Regular expression to match different matrix environments
+        const matrixRegex = /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|array)\}\{?([clr]*)\}?([\s\S]*?)\\end\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|array)\}/g;
+    
+        // Match the matrix structure
+        return latexCode.replace(matrixRegex, (match, p1, p2, content) => {
+            const rows = content.split('\\\\'); // Split into rows
+    
+            // Check if the first and last rows are empty
+            const isFirstRowEmpty = rows[0].trim() === '';
+            const isLastRowEmpty = rows[rows.length - 1].trim() === '';
+    
+            // Process each row and add placeholders for empty cells
+            const processedRows = rows.map(row => {
+                const cells = row.split('&').map(cell => cell.trim());
+    
+                // Add placeholders for empty cells
+                const newCells = cells.map(cell => {
+                    return cell === '' ? '\\placeholder{}' : cell;
+                });
+    
+                // Join back the cells with '&'
+                return newCells.join(' & ');
+            });
+    
+            // Remove first row if it's empty
+            if (isFirstRowEmpty) {
+                processedRows.shift(); // Remove the first row
+            }
+    
+            // Remove last row if it's empty
+            if (isLastRowEmpty) {
+                processedRows.pop(); // Remove the last row
+            }
+    
+            // Join processed rows back together with '\\'
+            const newArrayContent = processedRows.join(' \\\\ ');
+    
+            // Construct the final LaTeX code with placeholders
+            return `\\begin{${p1}}${p2 ? `{${p2}}` : ''}${newArrayContent}\\end{${p1}}`;
+        });
+    }
+    
+
+    formatMathLiveOutput(mathLiveValue: any) {
+        let value = mathLiveValue;
+
+        // value = value.includes('{{') ? value.replace('{{', '') : value;
+        // value = value.replace('\\displaylines', '\\displaylines{');
+        // value = value.includes('}}') ? value.replace('}}', '') : value;
+        // value = value.includes('\\displaylines{') ? `${value}}` : value;
+        value = value.replaceAll("\\placeholder{}", "");
+
+        // value = value.includes('\\begin{align}') ? `${value}` : value;
+
+        return value;
+    }
+
+    ensureLatexAlignment(latex) {
+        let value = latex;
+
+        if (!value.includes('\\begin{array}')) {
+            value = `\\begin{array}${value.replace(
+                /\\\\/g,
+                '\\\\'
+            )}\\end{array}`;
+        }
+
+        value = value.replace(/&/g, ' & ');
+
+        return value;
+    }
+    
+    ensureNewLine(latex: string): string {
+        let value = latex;
+    
+        if (value.includes('\\\\')) {
+            value = `\\begin{array}${value.replace(/\\\\/g, '\\\\ ')}\\end{array}`;
+        }
+    
+        value = value.replace(/&/g, ' & ');
+    
+        value = value.replace(/,{2,}/g, ',').replace(/;{2,}/g, ';');
+    
+        return value.trim();
+    }
+ 
+    replaceMathMLEntities(mathml: string): string {
+        // Replace common MathML entities with their Unicode equivalents
+        return mathml
+            .replace(/&ne;/g, '\u2260') // Replace &ne; with ≠
+            .replace(/&nbsp;/g, '\u00A0') // Replace &nbsp; with non-breaking space
+            .replace(/&amp;/g, '&') // Handle &amp; if present
+            // Add more replacements as needed for other unsupported entities
+            ;
+    }
+
+    cleanMathMLSeparators(mathml: string): string {
+        // Replace unsupported entities before parsing
+        mathml = this.replaceMathMLEntities(mathml);
+    
+        // Parse the MathML string into a DOM structure
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(mathml, "application/xml");
+    
+        // Handle parsing errors
+        const parserError = xmlDoc.querySelector("parsererror");
+        if (parserError) {
+            console.error("Error parsing MathML:", parserError.textContent);
+            return mathml; // Return original MathML as a fallback
+        }
+    
+        // Remove <mo separator="true">,</mo> elements that are unnecessary
+        const separators = xmlDoc.querySelectorAll('mo[separator="true"]');
+        separators.forEach((sep) => {
+            if (sep.textContent === ',' && !this.isNecessarySeparator(sep)) {
+                sep.remove();
+            }
+        });
+    
+        // Serialize the DOM structure back to a string
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(xmlDoc);
+    }
+
+    isNecessarySeparator(separator: Element): boolean {
+        const prev = separator.previousElementSibling;
+        const next = separator.nextElementSibling;
+ 
+        // Keep separators between variables or numeric expressions
+        if (prev?.tagName === 'mi' && next?.tagName === 'mi') {
+            return true;
+        }
+ 
+        // Example: Keep commas in tuple-like structures
+        if (prev?.tagName === 'mo' && prev.textContent === '(' && next?.tagName === 'mo' && next.textContent === ')') {
+            return true;
+        }
+ 
+        return false; // Remove all other separators
+    }
+
+    customKeyboardLayout = [
+        {
+            label: 'Essentials',
+            tooltip: 'Only the essential',
+            layers: [
+                {
+                    label: 'layer-6',
+                    style: `.basic_math_button{ font-size: 13px; color: white; }`,
+                    rows: [
+                        [
+                            {
+                                latex: '\\frac{#1}{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'Fraction',
+                            },
+                            {
+                                latex: '\\dfrac{#1}{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'D-Fraction',
+                            },
+                            {
+                                latex: '\\tfrac{#1}{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'T-Fraction',
+                            },
+                            {
+                                latex: '\\,^{#1}\\!/\\!_{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'Diagonal-Fraction',
+                            },
+                            {
+                                latex: '{#1}^{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'Superscript',
+                            },
+                            {
+                                latex: '{#1}_{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'Subscript',
+                            },
+                            {
+                                latex: '{#1}_{#2}^{#3}',
+                                class: 'basic_math_button',
+                                tooltip: 'super & sub script',
+                            },
+                            {
+                                latex: '\\left.^{#2} {#1}\\right',
+                                class: 'basic_math_button',
+                                tooltip: 'Left super-script',
+                            },
+                            {
+                                latex: '\\left._{#2} {#1}\\right',
+                                class: 'basic_math_button',
+                                tooltip: 'Left sub-script',
+                            },
+                            {
+                                latex: '\\left.^{#2}_{#3} {#1}\\right',
+                                class: 'basic_math_button',
+                                tooltip: 'Left sub & super script',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\sqrt{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'Square root',
+                            },
+                            {
+                                latex: '\\sqrt[#1]{#2}',
+                                class: 'basic_math_button',
+                                tooltip: 'Root',
+                            },
+                            {
+                                latex: '\\overset{#2}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'overset top',
+                            },
+                            {
+                                latex: '\\underset{#2}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'underset',
+                            },
+                            {
+                                latex: '\\overset{#2}{\\underset{#3}{#1}}',
+                                class: 'basic_math_button',
+                                tooltip: 'overset-underset',
+                            },
+                            {
+                                latex: '\\overbrace{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'overbrace',
+                            },
+                            {
+                                latex: '\\underbrace{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'underbrace',
+                            },
+                            {
+                                latex: '\\underbrace{\\underbrace{#1}_{#2}}_{#3}',
+                                class: 'basic_math_button',
+                                tooltip: 'underbrace',
+                            },
+                            {
+                                latex: '\\overbrace{\\overbrace{#1}^{#2}}^{#3}',
+                                class: 'basic_math_button',
+                                tooltip: 'overbrace',
+                            },
+                            {
+                                latex: '\\left.^{#2}_{#3} {#1} _{#4}^{#5}\\right',
+                                class: 'basic_math_button',
+                                tooltip: 'Left sub & super script',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\acute{}',
+                                class: 'basic_math_button',
+                                tooltip: 'Accute accent',
+                            },
+                            {
+                                latex: '\\grave{}',
+                                class: 'basic_math_button',
+                                tooltip: 'Grave accent',
+                            },
+                            {
+                                latex: '\\dot{}',
+                                class: 'basic_math_button',
+                                tooltip: 'Grave accent',
+                            },
+                            {
+                                latex: '\\ddot{}',
+                                class: 'basic_math_button',
+                                tooltip: 'doubledot accent',
+                            },
+                            {
+                                latex: '\\mathring{}',
+                                class: 'basic_math_button',
+                                tooltip: 'mathring accent',
+                            },
+                            {
+                                latex: '\\tilde{}',
+                                class: 'basic_math_button',
+                                tooltip: 'tilde accent',
+                            },
+                            {
+                                latex: '\\vec{}',
+                                class: 'basic_math_button',
+                                tooltip: 'vector accent',
+                            },
+                            {
+                                latex: '\\^{e}',
+                                class: 'basic_math_button',
+                                tooltip: '^e',
+                            },
+                            {
+                                latex: '\\{e}',
+                                class: 'basic_math_button',
+                                tooltip: '`e',
+                            },
+                            {
+                                latex: '\\c{c}',
+                                class: 'basic_math_button',
+                                tooltip: '`e',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\enclose{roundedbox}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'Enclosed Boxed',
+                            },
+                            {
+                                latex: '\\enclose{updiagonalstrike roundedbox}[1px solid red, mathbackground="#fbc0bd"]{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'Enclosed Boxed',
+                            },
+                            {
+                                latex: '\\enclose{updiagonalstrike}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'cancel updiagonal',
+                            },
+                            {
+                                latex: '\\enclose{downdiagonalstrike}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'cancel downdiagonal',
+                            },
+                            {
+                                latex: '\\enclose{updiagonalstrike downdiagonalstrike}{#1}',
+                                class: 'basic_math_button',
+                                tooltip: 'up and down diagonal',
+                            },
+                            {
+                                latex: '\\space',
+                                class: 'basic_math_button',
+                                label: 'Space',
+                                tooltip: 'Space',
+                            },
+                            {
+                                latex: '\\smash[]{}',
+                                class: 'basic_math_button',
+                                label: 'Smash',
+                                tooltip: 'Smash',
+                            },
+                            {
+                                latex: '\\vphantom{}',
+                                class: 'basic_math_button',
+                                label: 'V-Phantom',
+                                tooltip: 'V-Phantom',
+                            },
+                            {
+                                latex: '\\hphantom{}',
+                                class: 'basic_math_button',
+                                label: 'h-Phantom',
+                                tooltip: 'H-Phantom',
+                            },
+                            {
+                                latex: '\\phantom{}',
+                                class: 'basic_math_button',
+                                label: 'Phantom',
+                                tooltip: 'Phantom brank position',
+                            },
+                        ],
+                    ],
+                },
+            ],
+        },
+        'symbols',
+        {
+            label: 'Essentials II',
+            layers: [
+                {
+                    // First layer
+                    label: 'layer-1',
+                    style: '.digit { font-size: 13px; color: white; }',
+                    rows: [
+                        [
+                            {
+                                latex: '\\frac{#@}{#?}',
+                                class: 'digit',
+                                tooltip: 'Fraction',
+                            },
+                            {
+                                latex:  '\\,^{#@}\\!/\\!_{#?}',
+                                class: 'digit',
+                                tooltip: 'Nice Fraction',
+                            },
+                            {
+                                latex:  '\\sqrt{#0}',
+                                class: 'digit',
+                                tooltip: 'Square Root',
+                            },
+                            {
+                                latex:  '\\sqrt[]{}',
+                                class: 'digit',
+                                tooltip: 'Root',
+                            },
+                            {
+                                latex:  '#@^{#?}', // '#@^{#?}'
+                                class: 'digit',
+                                tooltip: 'Square Root',
+                            },
+                            {
+                                latex:  '\\(#@)',
+                                class: 'digit',
+                                tooltip: 'x)',
+                            },
+                            {
+                                latex:  '\\(#@]',
+                                class: 'digit',
+                                tooltip: 'x]',
+                            },
+                            {
+                                latex:  '\\(#@}',
+                                class: 'digit',
+                                tooltip: 'x}',
+                            },
+                            {
+                                latex:  '\\(#@|',
+                                class: 'digit',
+                                tooltip: 'x|',
+                            },
+                            {
+                                latex:  '\\pm',
+                                class: 'digit',
+                                tooltip: 'Plus Minus',
+                            },
+                            {
+                                latex:  '\\mp',
+                                class: 'digit',
+                                tooltip: 'Minus Plus',
+                            },
+                            {
+                                latex:  '\\times',
+                                class: 'digit',
+                                tooltip: 'Multiplication',
+                            },
+                            {
+                                latex:  '\\div',
+                                class: 'digit',
+                                tooltip: 'Division',
+                            },
+                        ],
+                        [
+                            '\\in',
+                            '\\subset',
+                            '\\supset',
+                            '\\cup',
+                            '\\cap',
+                            '\\infin',
+                            '\\phi',
+                            '\\pi',
+                            '\\mu',
+                            '\\partial',
+                            '\\triangle',
+                            '\\triangledown',
+                            '\\le',
+                        ],
+                        [
+                            '\\leq',
+                            '\\cdot',
+                            '\\ast',
+                            '\\cong',
+                            '\\equiv',
+                            '\\approxeq',
+                            '\\thickapprox',
+                            '\\thicksim',
+                            '\\equiv',
+                            '\\approx',
+                            '\\simeq',
+                            '\\leqslant',
+                            '\\geqslant',
+                        ],
+                        [
+                            '\\rightarrow',
+                            '\\leftarrow',
+                            '\\leftrightarrow',
+                            '\\Rightarrow',
+                            '\\Leftarrow',
+                            '\\mapsto',
+                            '\\xrightarrow{#@}',
+                            '\\xrightarrow[{#@}]{}',
+                            '\\xrightarrow[{#@}]{{#?}}',
+                            '\\xleftarrow[{#@}]{{#?}}',
+                            '\\xrightharpoonup{{#?}}',
+                            '\\xleftharpoonup[]{{#?}}',
+                            '\\xleftrightarrow[]{{#?}}',
+                        ],
+                    ],
+                },
+            ],
+        },
+        {
+            label: '∑ ∏ ∐ ⋰',
+            tooltip: 'Math Operators with limits',
+            layers: [
+                {
+                    label: 'layer-operators',
+                    style: `.operator-button { font-size: 14px; color: white; }`, // Custom style for font size
+                    rows: [
+                        [
+                            {
+                                latex: '\\displaystyle \\sum_{i=0}^{#?}',
+                                class: 'operator-button',
+                                tooltip: 'Sum with limits'
+                            }, // Summation with limits
+                            {
+                                latex: '\\sum_{i=0}^n\\nolimits',
+                                class: 'operator-button',
+                                tooltip: 'Sum with no limits'
+                            }, // Summation with no limits
+                            {
+                                latex: '\\displaystyle \\sum_{#1}^{#2}',
+                                class: 'operator-button',
+                            }, // Summation with limits
+                            {
+                                latex: '\\displaystyle \\sum^{#1}',
+                                class: 'operator-button',
+                            }, // Summation with upper limits
+                            {
+                                latex: '\\displaystyle \\sum_{#1}',
+                                class: 'operator-button',
+                            }, // Summation with lower limit
+                            {
+                                latex: '\\displaystyle \\prod_{#1}^{#2}',
+                                class: 'operator-button',
+                            }, // Product with limits
+                            {
+                                latex: '\\displaystyle \\prod^{#2}',
+                                class: 'operator-button',
+                            }, // Product with upper limit
+                            {
+                                latex: '\\displaystyle \\prod_{#1}',
+                                class: 'operator-button',
+                            }, // Product with lower limit
+                        ],
+                        [
+                            {
+                                latex: '\\textstyle \\sum_{#1}^{#2}',
+                                class: 'operator-button',
+                            },
+                            {
+                                latex: '\\textstyle \\sum^{#1}',
+                                class: 'operator-button',
+                            },
+                            {
+                                latex: '\\textstyle \\sum_{#1}',
+                                class: 'operator-button',
+                            },
+                            {
+                                latex: '\\textstyle \\cap',
+                                class: 'operator-button',
+                            }, // Intersection
+                            {
+                                latex: '\\textstyle \\cup',
+                                class: 'operator-button',
+                            }, // Union
+                            {
+                                latex: '\\textstyle \\prod_{#1}^{#2}',
+                                class: 'operator-button',
+                            },
+                            {
+                                latex: '\\textstyle \\prod^{#1}',
+                                class: 'operator-button',
+                            },
+                            {
+                                latex: '\\textstyle \\prod_{#1}',
+                                class: 'operator-button',
+                            },
+                        ],
+                        [
+                            '.',
+                            '?',
+                            '!',
+                            ':',
+                            '\\Colon',
+                            ';',
+                            ',',
+                            '\\circledS'
+                        ],
+                        [
+                            '\\cdotp',
+                            '\\ldotp',
+                            '\\vdots',
+                            '\\cdots',
+                            '\\ddots',
+                            '\\ldots',
+                            '\\mathellipsis',
+                            '\\circledR'
+                        ]
+                    ],
+                },
+            ],
+        },
+        {
+            label: '∫∮∰',
+            tooltip: 'Calculus and Integrals',
+            layers: [
+                {
+                    label: 'layer-calculus',
+                    style: `.calculus-button { font-size: 14px; color: white; }`,
+                    rows: [
+                        [
+                            
+                            { latex: '\\int', class: 'calculus-button' },
+                            {
+                                latex: '\\int_{#1}^{#2}',
+                                class: 'calculus-button',
+                                tooltip: 'Definite Integral',
+                            },
+                            {
+                                latex: '\\intop_{#1}^{#2}',
+                                class: 'calculus-button',
+                                tooltip: 'Integral Top',
+                            },
+                            {
+                                latex: '\\int_{#1}',
+                                class: 'calculus-button',
+                                tooltip: 'Integral No upper',
+                            },
+                            {
+                                latex: '\\int_{#1}^{#2} {#3}\\,d{#4}',
+                                class: 'calculus-button',
+                            },
+                            {
+                                latex: '\\frac{d{#1}}{d{#2}}',
+                                class: 'calculus-button',
+                            },
+                            {
+                                latex: '\\pdiff{#1}{#2}',
+                                class: 'calculus-button',
+                            },
+                            {
+                                latex: '\\frac{\\partial{#1}}{\\partial{#2}}',
+                                class: 'calculus-button',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\lim_{{#1}\\to{#2}}',
+                                class: 'calculus-button',
+                            },
+                            { latex: '\\varprojlim', class: 'calculus-button' },
+                            { latex: '\\varinjlim', class: 'calculus-button' },
+                            { latex: '\\varliminf', class: 'calculus-button' },
+                            { latex: '\\varlimsup', class: 'calculus-button' },
+                            { latex: '\\projlim', class: 'calculus-button' },
+                            { latex: '\\injlim', class: 'calculus-button' },
+                            { latex: '\\plim', class: 'calculus-button' },
+                        ],
+                        [
+                            { latex: '\\iint', class: 'calculus-button' },
+                            { latex: '\\iiint', class: 'calculus-button' },
+                            { latex: '\\oint', class: 'calculus-button' },
+                            { latex: '\\oiint', class: 'calculus-button' },
+                            { latex: '\\oiiint', class: 'calculus-button' },
+                            { latex: '\\smallint', class: 'calculus-button' },
+                            { latex: '\\partial', class: 'calculus-button' },
+                            { latex: '\\nabla', class: 'calculus-button' },
+                            { latex: '\\Delta', class: 'calculus-button' },
+                        ],
+                        [
+                            { latex: '\\ln', class: 'calculus-button' },
+                            { latex: '\\exp', class: 'calculus-button' },
+                            { latex: '\\lb', class: 'calculus-button' },
+                            { latex: '\\lg', class: 'calculus-button' },
+                            { latex: '\\ker', class: 'calculus-button' },
+                            { latex: '\\det', class: 'calculus-button' },
+                            { latex: '\\arg', class: 'calculus-button' },
+                            { latex: '\\argmin', class: 'calculus-button' },
+                            { latex: '\\argmax', class: 'calculus-button' },
+                        ]
+                    ],
+                },
+            ],
+        },
+        {
+            label: 'Greek',
+            tooltip: 'Upper and Lower Greek',
+            layers: [
+                {
+                    label: 'layer-Greek',
+                    style: `.greek-button { font-size: 20px; color: white; }`,
+                    rows: [
+                        [
+                            {
+                                latex: '\\alpha',
+                                class: 'greek-button',
+                                tooltip: 'lower alpha',
+                            },
+                            {
+                                latex: '\\beta',
+                                class: 'greek-button',
+                                tooltip: 'lower beta',
+                            },
+                            {
+                                latex: '\\gamma',
+                                class: 'greek-button',
+                                tooltip: 'lower gamma',
+                            },
+                            {
+                                latex: '\\delta',
+                                class: 'greek-button',
+                                tooltip: 'lower delta',
+                            },
+                            {
+                                latex: '\\epsilon',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\varepsilon',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\zeta',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\eta',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\theta',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\vartheta',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\iota',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\kappa',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\varkappa',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\lambda',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\mu',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                            {
+                                latex: '\\nu',
+                                class: 'greek-button',
+                                tooltip: 'lower epsilon',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\xi',
+                                class: 'greek-button',
+                                tooltip: 'lower xi',
+                            },
+                            {
+                                latex: '\\omicron',
+                                class: 'greek-button',
+                                tooltip: 'lower omicron',
+                            },
+                            {
+                                latex: '\\varpi',
+                                class: 'greek-button',
+                                tooltip: 'lower varpi',
+                            },
+                            {
+                                latex: '\\pi',
+                                class: 'greek-button',
+                                tooltip: 'lower pi',
+                            },
+                            {
+                                latex: '\\rho',
+                                class: 'greek-button',
+                                tooltip: 'lower rho',
+                            },
+                            {
+                                latex: '\\varrho',
+                                class: 'greek-button',
+                                tooltip: 'lower varrho',
+                            },
+                            {
+                                latex: '\\sigma',
+                                class: 'greek-button',
+                                tooltip: 'lower sigma',
+                            },
+                            {
+                                latex: '\\varsigma',
+                                class: 'greek-button',
+                                tooltip: 'lower varsigma',
+                            },
+                            {
+                                latex: '\\tau',
+                                class: 'greek-button',
+                                tooltip: 'lower tau',
+                            },
+                            {
+                                latex: '\\phi',
+                                class: 'greek-button',
+                                tooltip: 'lower phi',
+                            },
+                            {
+                                latex: '\\upsilon',
+                                class: 'greek-button',
+                                tooltip: 'lower upsilon',
+                            },
+                            {
+                                latex: '\\varphi',
+                                class: 'greek-button',
+                                tooltip: 'lower varphi',
+                            },
+                            {
+                                latex: '\\chi',
+                                class: 'greek-button',
+                                tooltip: 'lower chi',
+                            },
+                            {
+                                latex: '\\psi',
+                                class: 'greek-button',
+                                tooltip: 'lower psi',
+                            },
+                            {
+                                latex: '\\omega',
+                                class: 'greek-button',
+                                tooltip: 'lower omega',
+                            },
+                            {
+                                latex: '\\digamma',
+                                class: 'greek-button',
+                                tooltip: 'lower digamma',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\Alpha',
+                                class: 'greek-button',
+                                tooltip: 'Upper Alpha',
+                            },
+                            {
+                                latex: '\\Beta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Beta',
+                            },
+                            {
+                                latex: '\\Beta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Beta',
+                            },
+                            {
+                                latex: '\\Gamma',
+                                class: 'greek-button',
+                                tooltip: 'Upper Gamma',
+                            },
+                            {
+                                latex: '\\varGamma',
+                                class: 'greek-button',
+                                tooltip: 'Upper varGamma',
+                            },
+                            {
+                                latex: '\\Delta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Delta',
+                            },
+                            {
+                                latex: '\\varDelta',
+                                class: 'greek-button',
+                                tooltip: 'Upper varDelta',
+                            },
+                            {
+                                latex: '\\Epsilon',
+                                class: 'greek-button',
+                                tooltip: 'Upper Epsilon',
+                            },
+                            {
+                                latex: '\\Zeta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Zeta',
+                            },
+                            {
+                                latex: '\\Eta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Eta',
+                            },
+                            {
+                                latex: '\\Theta',
+                                class: 'greek-button',
+                                tooltip: 'Upper Theta',
+                            },
+                            {
+                                latex: '\\varTheta',
+                                class: 'greek-button',
+                                tooltip: 'Upper varTheta',
+                            },
+                            {
+                                latex: '\\Iota',
+                                class: 'greek-button',
+                                tooltip: 'Upper Iota',
+                            },
+                            {
+                                latex: '\\Kappa',
+                                class: 'greek-button',
+                                tooltip: 'Upper Kappa',
+                            },
+                            {
+                                latex: '\\Lambda',
+                                class: 'greek-button',
+                                tooltip: 'Upper Lambda',
+                            },
+                            {
+                                latex: '\\varLambda',
+                                class: 'greek-button',
+                                tooltip: 'Upper varLambda',
+                            },
+                            {
+                                latex: '\\Omega',
+                                class: 'greek-button',
+                                tooltip: 'Upper Omega',
+                            },
+                            {
+                                latex: '\\varOmega',
+                                class: 'greek-button',
+                                tooltip: 'Upper varOmega',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\Mu',
+                                class: 'greek-button',
+                                tooltip: 'Upper Mu',
+                            },
+                            {
+                                latex: '\\Nu',
+                                class: 'greek-button',
+                                tooltip: 'Upper Nu',
+                            },
+                            {
+                                latex: '\\Xi',
+                                class: 'greek-button',
+                                tooltip: 'Upper Xi',
+                            },
+                            {
+                                latex: '\\varXi',
+                                class: 'greek-button',
+                                tooltip: 'Upper varXi',
+                            },
+                            {
+                                latex: '\\Omicron',
+                                class: 'greek-button',
+                                tooltip: 'Upper Omicron',
+                            },
+                            {
+                                latex: '\\Pi',
+                                class: 'greek-button',
+                                tooltip: 'Upper Pi',
+                            },
+                            {
+                                latex: '\\varPi',
+                                class: 'greek-button',
+                                tooltip: 'Upper varPi',
+                            },
+                            {
+                                latex: '\\rho',
+                                class: 'greek-button',
+                                tooltip: 'Upper rho',
+                            },
+                            {
+                                latex: '\\Sigma',
+                                class: 'greek-button',
+                                tooltip: 'Upper Sigma',
+                            },
+                            {
+                                latex: '\\varSigma',
+                                class: 'greek-button',
+                                tooltip: 'Upper varSigma',
+                            },
+                            {
+                                latex: '\\Tau',
+                                class: 'greek-button',
+                                tooltip: 'Upper Tau',
+                            },
+                            {
+                                latex: '\\Phi',
+                                class: 'greek-button',
+                                tooltip: 'Upper Phi',
+                            },
+                            {
+                                latex: '\\varPhi',
+                                class: 'greek-button',
+                                tooltip: 'Upper varPhi',
+                            },
+                            {
+                                latex: '\\Upsilon',
+                                class: 'greek-button',
+                                tooltip: 'Upper Upsilon',
+                            },
+                            {
+                                latex: '\\varUpsilon',
+                                class: 'greek-button',
+                                tooltip: 'Upper varUpsilon',
+                            },
+                            {
+                                latex: '\\Chi',
+                                class: 'greek-button',
+                                tooltip: 'Upper Chi',
+                            },
+                            {
+                                latex: '\\Psi',
+                                class: 'greek-button',
+                                tooltip: 'Upper Psi',
+                            },
+                            {
+                                latex: '\\varPsi',
+                                class: 'greek-button',
+                                tooltip: 'Upper varPsi',
+                            },
+                        ],
+                    ],
+                },
+            ],
+        },
+        {
+            label: '⇒⋰Ω',
+            tooltip: 'Symbols',
+            layers: [
+                {
+                    label: 'layer-symbols',
+                    style: `.symbols-button { font-size: 20px; color: white; }`,
+                    rows: [
+                        [
+                            {
+                                latex: '\\diamond',
+                                class: 'greek-button',
+                                tooltip: 'diamond',
+                            },
+                            {
+                                latex: '\\Diamond',
+                                class: 'greek-button',
+                                tooltip: 'Diamond',
+                            },
+                            {
+                                latex: '\\lozenge',
+                                class: 'greek-button',
+                                tooltip: 'lozenge',
+                            },
+                            {
+                                latex: '\\blacklozenge',
+                                class: 'greek-button',
+                                tooltip: 'blacklozenge',
+                            },
+                            {
+                                latex: '\\square',
+                                class: 'greek-button',
+                                tooltip: 'square',
+                            },
+                            {
+                                latex: '\\Box',
+                                class: 'greek-button',
+                                tooltip: 'Box',
+                            },
+                            {
+                                latex: '\\blacksquare',
+                                class: 'greek-button',
+                                tooltip: 'blacksquare',
+                            },
+                            {
+                                latex: '\\bigcirc',
+                                class: 'greek-button',
+                                tooltip: 'bigcirc',
+                            },
+                            {
+                                latex: '\\circledS',
+                                class: 'greek-button',
+                                tooltip: 'circledS',
+                            },
+                            {
+                                latex: '\\circledR',
+                                class: 'greek-button',
+                                tooltip: 'circledR',
+                            },
+                            {
+                                latex: '\\triangleleft',
+                                class: 'greek-button',
+                                tooltip: 'triangleleft',
+                            },
+                            {
+                                latex: '\\triangleright',
+                                class: 'greek-button',
+                                tooltip: 'triangleright',
+                            },
+                            {
+                                latex: '\\triangle',
+                                class: 'greek-button',
+                                tooltip: 'triangle',
+                            },
+                            {
+                                latex: '\\triangledown',
+                                class: 'greek-button',
+                                tooltip: 'triangledown',
+                            },
+                            {
+                                latex: '\\blacktriangleleft',
+                                class: 'greek-button',
+                                tooltip: 'blacktriangleleft',
+                            },
+                            {
+                                latex: '\\blacktriangleright',
+                                class: 'greek-button',
+                                tooltip: 'blacktriangleright',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\blacktriangle',
+                                class: 'greek-button',
+                                tooltip: '\blacktriangle',
+                            },
+                            {
+                                latex: '\\blacktriangledown',
+                                class: 'greek-button',
+                                tooltip: 'blacktriangledown',
+                            },
+                            {
+                                latex: '\\vartriangle',
+                                class: 'greek-button',
+                                tooltip: 'vartriangle',
+                            },
+                            {
+                                latex: '\\vartriangleleft',
+                                class: 'greek-button',
+                                tooltip: 'vartriangleleft',
+                            },
+                            {
+                                latex: '\\vartriangleright',
+                                class: 'greek-button',
+                                tooltip: 'vartriangleright',
+                            },
+                            {
+                                latex: '\\triangleq',
+                                class: 'greek-button',
+                                tooltip: 'triangleq',
+                            },
+                            {
+                                latex: '\\trianglelefteq',
+                                class: 'greek-button',
+                                tooltip: 'trianglelefteq',
+                            },
+                            {
+                                latex: '\\trianglerighteq',
+                                class: 'greek-button',
+                                tooltip: 'trianglerighteq',
+                            },
+                            {
+                                latex: '\\ntriangleleft',
+                                class: 'greek-button',
+                                tooltip: 'ntriangleleft',
+                            },
+                            {
+                                latex: '\\ntriangleright',
+                                class: 'greek-button',
+                                tooltip: 'ntriangleright',
+                            },
+                            {
+                                latex: '\\ntrianglelefteq',
+                                class: 'greek-button',
+                                tooltip: 'ntrianglelefteqn',
+                            },
+                            {
+                                latex: '\\ntrianglerighteq',
+                                class: 'greek-button',
+                                tooltip: 'ntrianglerighteq',
+                            },
+                            {
+                                latex: '\\bigtriangleup',
+                                class: 'greek-button',
+                                tooltip: 'bigtriangleup',
+                            },
+                            {
+                                latex: '\\bigtriangledown',
+                                class: 'greek-button',
+                                tooltip: 'bigtriangledown',
+                            },
+                            {
+                                latex: '\\dagger',
+                                class: 'greek-button',
+                                tooltip: 'dagger',
+                            },
+                            {
+                                latex: '\\ddag',
+                                class: 'greek-button',
+                                tooltip: 'ddag',
+                            },
+                            {
+                                latex: '\\maltese',
+                                class: 'greek-button',
+                                tooltip: 'maltese',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\mapsfrom',
+                                class: 'greek-button',
+                                tooltip: 'mapsfrom',
+                            },
+                            {
+                                latex: '\\Mapsfrom',
+                                class: 'greek-button',
+                                tooltip: 'Mapsfrom',
+                            },
+                            {
+                                latex: '\\MapsTo',
+                                class: 'greek-button',
+                                tooltip: 'MapsTo',
+                            },
+                            {
+                                latex: '\\lightning',
+                                class: 'greek-button',
+                                tooltip: 'lightning',
+                            },
+                            {
+                                latex: '\\leftarrowtriangle',
+                                class: 'greek-button',
+                                tooltip: 'leftarrowtriangle',
+                            },
+                            {
+                                latex: '\\rightarrowtriangle',
+                                class: 'greek-button',
+                                tooltip: 'rightarrowtriangle',
+                            },
+                            {
+                                latex: '\\leftrightarrowtriangle',
+                                class: 'greek-button',
+                                tooltip: 'leftrightarrowtriangle',
+                            },
+                            {
+                                latex: '\\boxdot',
+                                class: 'greek-button',
+                                tooltip: 'boxdot',
+                            },
+                            {
+                                latex: '\\bigtriangleup',
+                                class: 'greek-button',
+                                tooltip: 'bigtriangleup',
+                            },
+                            {
+                                latex: '\\bigtriangledown',
+                                class: 'greek-button',
+                                tooltip: 'bigtriangledown',
+                            },
+                            {
+                                latex: '\\boxbar',
+                                class: 'greek-button',
+                                tooltip: 'boxbar',
+                            },
+                            {
+                                latex: '\\Lbag',
+                                class: 'greek-button',
+                                tooltip: 'Lbag',
+                            },
+                            {
+                                latex: '\\Rbag',
+                                class: 'greek-button',
+                                tooltip: 'Rbag',
+                            },
+                            {
+                                latex: '\\llbracket',
+                                class: 'greek-button',
+                                tooltip: 'llbracket',
+                            },
+                            {
+                                latex: '\\llbracket',
+                                class: 'greek-button',
+                                tooltip: 'llbracket',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\longmapsfrom',
+                                class: 'greek-button',
+                                tooltip: 'longmapsfrom',
+                            },
+                            {
+                                latex: '\\Longmapsfrom',
+                                class: 'greek-button',
+                                tooltip: 'Longmapsfrom',
+                            },
+                            {
+                                latex: '\\Longmapsto',
+                                class: 'greek-button',
+                                tooltip: 'Longmapsto',
+                            },
+                            {
+                                latex: '\\boxslash',
+                                class: 'greek-button',
+                                tooltip: 'boxslash',
+                            },
+                            {
+                                latex: '\\boxbslash',
+                                class: 'greek-button',
+                                tooltip: 'boxbslash',
+                            },
+                            {
+                                latex: '\\boxast',
+                                class: 'greek-button',
+                                tooltip: 'boxast',
+                            },
+                            {
+                                latex: '\\boxcircle',
+                                class: 'greek-button',
+                                tooltip: 'boxcircle',
+                            },
+                            {
+                                latex: '\\boxbox',
+                                class: 'greek-button',
+                                tooltip: 'boxbox',
+                            },
+                            {
+                                latex: '\\fatsemi',
+                                class: 'greek-button',
+                                tooltip: 'fatsemi',
+                            },
+                            {
+                                latex: '\\leftslice',
+                                class: 'greek-button',
+                                tooltip: 'leftslice',
+                            },
+                            {
+                                latex: '\\rightslice',
+                                class: 'greek-button',
+                                tooltip: 'rightslice',
+                            },
+                            {
+                                latex: '\\interleave',
+                                class: 'greek-button',
+                                tooltip: 'interleave',
+                            },
+                            {
+                                latex: '\\biginterleave',
+                                class: 'greek-button',
+                                tooltip: 'biginterleave',
+                            },
+                            {
+                                latex: '\\sslash',
+                                class: 'greek-button',
+                                tooltip: 'sslash',
+                            },
+                            {
+                                latex: '\\talloblong',
+                                class: 'greek-button',
+                                tooltip: 'talloblong',
+                            },
+                        ],
+                    ],
+                },
+            ],
+        },
+        {
+            label: 'Enclosed',
+            tooltip: 'Enclosed space',
+            style: `.enclosed-button { font-size: 14px; color: white; } `,
+            rows: [
+                [
+                    {
+                        latex: '\\enclose{box}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{roundedbox}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{circle}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{top}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{left}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{bottom}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{right}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{horizontalstrike}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{actuarial}{#1}',
+                        class: 'enclosed-button',
+                    },
+                ],
+                [
+                    {
+                        latex: '\\enclose{verticalstrike}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{downdiagonalstrike}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalarrow}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{phasorangle}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{radical}{#1}',
+                        class: 'enclosed-button',
+                        tooltip: 'longdiv',
+                    },
+                    {
+                        latex: '\\enclose{longdiv}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{actuarial}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{madruwb}{#1}',
+                        class: 'enclosed-button',
+                    },
+                ],
+                [
+                    {
+                        latex: '\\enclose{updiagonalstrike box}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{downdiagonalstrike box}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike downdiagonalstrike box}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike circle}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{downdiagonalstrike circle}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike downdiagonalstrike circle}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike roundedbox}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{downdiagonalstrike roundedbox}{#1}',
+                        class: 'enclosed-button',
+                    },
+                    {
+                        latex: '\\enclose{updiagonalstrike downdiagonalstrike roundedbox}{#1}',
+                        class: 'enclosed-button',
+                    },
+                ],
+            ],
+        },
+        {
+            label: 'Trigonometry',
+            tooltip: 'Trigonometric functions',
+            layers: [
+                {
+                    label: 'Trig Layer',
+                    style: `.trig-button { font-size: 12px; color: white; }`,
+                    rows: [
+                        [
+                            {
+                                latex: '\\sin',
+                                class: 'trig-button',
+                                tooltip: 'Sine',
+                            },
+                            {
+                                latex: '\\cos',
+                                class: 'trig-button',
+                                tooltip: 'Cosine',
+                            },
+                            {
+                                latex: '\\tan',
+                                class: 'trig-button',
+                                tooltip: 'Tangent',
+                            },
+                            {
+                                latex: '\\sec',
+                                class: 'trig-button',
+                                tooltip: 'Secant',
+                            },
+                            {
+                                latex: '\\csc',
+                                class: 'trig-button',
+                                tooltip: 'Cosecant',
+                            },
+                            {
+                                latex: '\\cot',
+                                class: 'trig-button',
+                                tooltip: 'Cotangent',
+                            },
+                            {
+                                latex: '\\sin^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Sine',
+                            },
+                            {
+                                latex: '\\cos^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cosine',
+                            },
+                            {
+                                latex: '\\tan^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Tangent',
+                            },
+                            {
+                                latex: '\\sec^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Secant',
+                            },
+                            {
+                                latex: '\\csc^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cosecant',
+                            },
+                            {
+                                latex: '\\cot^{-1}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cotangent',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\sin^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Sine',
+                            },
+                            {
+                                latex: '\\cos^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Cosine',
+                            },
+                            {
+                                latex: '\\tan^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Tangent',
+                            },
+                            {
+                                latex: '\\sec^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Secant',
+                            },
+                            {
+                                latex: '\\csc^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Cosecant',
+                            },
+                            {
+                                latex: '\\cot^{2}',
+                                class: 'trig-button',
+                                tooltip: 'Cotangent',
+                            },
+                            
+                            {
+                                latex: '\\sin^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Sine',
+                            },
+                            {
+                                latex: '\\cos^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cosine',
+                            },
+                            {
+                                latex: '\\tan^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Tangent',
+                            },
+                            {
+                                latex: '\\sec^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Secant',
+                            },
+                            {
+                                latex: '\\csc^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cosecant',
+                            },
+                            {
+                                latex: '\\cot^{-2}',
+                                class: 'trig-button',
+                                tooltip: 'Inverse Cotangent',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\degree',
+                                class: 'trig-button',
+                                tooltip: 'Degree',
+                            },
+                            {
+                                latex: '\\arccos',
+                                class: 'trig-button',
+                                tooltip: 'Arc cos',
+                            },
+                            {
+                                latex: '\\arctan',
+                                class: 'trig-button',
+                                tooltip: 'Arc tan',
+                            },
+                            {
+                                latex: '\\arctg',
+                                class: 'trig-button',
+                                tooltip: 'Arc tg',
+                            },
+                            {
+                                latex: '\\arcctg',
+                                class: 'trig-button',
+                                tooltip: 'Arc Ctg',
+                            },
+                            {
+                                latex: '\\ch',
+                                class: 'trig-button',
+                                tooltip: 'Cg',
+                            },
+                            {
+                                latex: '\\cosh',
+                                class: 'trig-button',
+                                tooltip: 'Cosh',
+                            },
+                            {
+                                latex: '\\ctg',
+                                class: 'trig-button',
+                                tooltip: 'Ctg',
+                            },
+                            {
+                                latex: '\\cth',
+                                class: 'trig-button',
+                                tooltip: 'Ctg',
+                            },
+                        ],
+                        [
+                            {
+                                latex: '\\max',
+                                class: 'trig-button',
+                                tooltip: 'Max',
+                            },
+                            {
+                                latex: '\\min',
+                                class: 'trig-button',
+                                tooltip: 'Min',
+                            },
+                            {
+                                latex: '\\sup',
+                                class: 'trig-button',
+                                tooltip: 'Sup',
+                            },
+                            {
+                                latex: '\\inf',
+                                class: 'trig-button',
+                                tooltip: 'Inf',
+                            },
+                            {
+                                latex: '\\lim',
+                                class: 'trig-button',
+                                tooltip: 'Lim',
+                            },
+                            {
+                                latex: '\\liminf',
+                                class: 'trig-button',
+                                tooltip: 'Liminf',
+                            },
+                            {
+                                latex: '\\limsup',
+                                class: 'trig-button',
+                                tooltip: 'Limsup',
+                            },
+                            {
+                                latex: '\\dim',
+                                class: 'trig-button',
+                                tooltip: 'Dim',
+                            },
+
+                        ]
+                    ],
+                },
+            ],
+        },
+        {
+            label: 'Matrix',
+            tooltip: 'Insert Matrices',
+            style: `.matrix-button { font-size: 8px; color: white; } `,
+            rows: [
+                [
+                    {
+                        latex: '\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}',
+                        tooltip: '2x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{ccc}\\placeholder{}&\\placeholder{}&\\placeholder{} \\\\ \\placeholder{}&\\placeholder{}&\\placeholder{} \\\\ \\placeholder{}&\\placeholder{}&\\placeholder{} \\end{array}',
+                        tooltip: '3x3',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left( \\begin{array}{cc}\\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{}\\end{array} \\right)`,
+                        tooltip: '(2x2)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left[ \\begin{array}{cc}\\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{}\\end{array} \\right]`,
+                        tooltip: '[2x2]',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left| \\begin{array}{cc}\\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{}\\end{array} \\right|`,
+                        tooltip: '|2x2|',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cc}\\placeholder{} \\\\ \\placeholder{} \\\\ \\placeholder{}\\end{array}',
+                        tooltip: '3x1',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cc}\\placeholder{} & \\placeholder{} & \\placeholder{}\\end{array}',
+                        tooltip: '1x3',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left( \\begin{array}{cc}\\placeholder{} & \\placeholder{} \\end{array} \\right)`,
+                        tooltip: '(1x2)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left( \\begin{array}{cc}\\placeholder{} \\\\ \\placeholder{} \\end{array} \\right)`,
+                        tooltip: '(2x1)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left[ \\begin{array}{cc}\\placeholder{} & \\placeholder{} \\end{array} \\right]`,
+                        tooltip: '[1x2]',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: `\\left[ \\begin{array}{cc}\\placeholder{} \\\\ \\placeholder{} \\end{array} \\right]`,
+                        tooltip: '[2x1]',
+                        class: 'matrix-button',
+                    },
+                ],
+                [
+                    {
+                        latex: '\\left(\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right.',
+                        tooltip: '(2x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left.\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right)',
+                        tooltip: '2x2)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left[\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right.',
+                        tooltip: '[2x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left.\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right]',
+                        tooltip: '2x2]',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left|\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right.',
+                        tooltip: '|2x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left.\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\\\ \\placeholder{} & \\placeholder{}\\end{array}\\right|',
+                        tooltip: '2x2|',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left(\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\end{array}\\right.',
+                        tooltip: '(1x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left.\\begin{array}{c}\\placeholder{}\\\\ \\placeholder{}\\end{array}\\right)',
+                        tooltip: '2x1)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left[\\begin{array}{cc}\\placeholder{} & \\placeholder{}\\end{array}\\right.',
+                        tooltip: '[1x2',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\left.\\begin{array}{c}\\placeholder{}\\\\ \\placeholder{}\\end{array}\\right]',
+                        tooltip: '2x1]',
+                        class: 'matrix-button',
+                    },
+                ],
+                [
+                    {
+                        latex: '\\begin{array}{lc} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(lc)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{lr} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(lr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cl} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(cl)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cr} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(cr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rl} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(rl)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rc} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(rc)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{lr} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(lr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{lc} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(lc)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cl} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(cl)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cr} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(cr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rl} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(rl)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rc} \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(rc)',
+                        class: 'matrix-button',
+                    },
+                ],
+                [
+                    {
+                        latex: '\\begin{array}{ll} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(ll)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{cc} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(cc)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rr} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '2x2(rr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{lll} \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '3x3(lll)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{ccc} \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '3x3(ccc)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rrr} \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '3x3(rrr)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{l} \\placeholder{} \\\\ \\placeholder{} \\\\ \\placeholder{} \\end{array}',
+                        tooltip: '3x1(l)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{c} \\placeholder{} \\\\ \\placeholder{} \\\\ \\placeholder{} \\end{array}',
+                        tooltip: '3x1(c)',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{r} \\placeholder{} \\\\ \\placeholder{} \\\\ \\placeholder{} \\end{array}',
+                        tooltip: '3x1(r))',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{lll} \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '1x3(l))',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{ccc} \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '1x3(ccc))',
+                        class: 'matrix-button',
+                    },
+                    {
+                        latex: '\\begin{array}{rrr} \\placeholder{} & \\placeholder{} & \\placeholder{} \\end{array}',
+                        tooltip: '1x3(rrr))',
+                        class: 'matrix-button',
+                    },
+                ],
+            ],
+        },
+    ];
+}
