@@ -100,6 +100,88 @@ Benefits of Using \`@SpringBootApplication\`
 Conclusion  
 The \`@SpringBootApplication\` annotation is a powerful tool in Spring Boot that streamlines application setup by combining essential configurations into one concise annotation. By leveraging this annotation, developers can create robust applications with minimal manual configuration while benefiting from Spring Boot's auto-configuration capabilities. Understanding its internal workings helps developers make better architectural decisions and troubleshoot issues effectively.
 
+# What is @Primary and @Qualifier. 
+
+​​Both `@Primary` and `@Qualifier` are Spring annotations used to resolve ambiguity when multiple beans of the same type are found in the Spring container. Here's a breakdown of each and their differences:
+
+**`@Primary`**
+
+* **Purpose:** Designates a bean as the preferred choice when multiple beans of the same type are available.1 If Spring encounters a dependency injection point where multiple beans could be injected, it will choose the one marked with `@Primary`.  
+* **Usage:** Placed on the bean definition (e.g., a class annotated with `@Component`, `@Bean`, etc.).
+
+  interface Animal {}
+
+
+  @Component
+
+  @Primary
+
+  class Dog implements Animal {}
+
+
+  @Component
+
+  class Cat implements Animal {}
+
+
+  @Service
+
+  class AnimalService {
+
+      @Autowired
+
+      private Animal animal; // Dog will be injected
+
+  }
+
+In this case, even though both `Dog` and `Cat` implement `Animal`, the `Dog` bean will be injected into `AnimalService` because it's marked with `@Primary`.
+
+**`@Qualifier`**
+
+* **Purpose:** Allows for fine-grained control over bean selection by specifying a qualifier value that matches the bean name or a custom qualifier.2  
+* **Usage:** Placed on the injection point (`@Autowired` field, constructor parameter, or setter method) and on the bean definition.  
+* **Example:**
+
+  interface Animal {}
+
+
+  @Component("dog")
+
+  class Dog implements Animal {}
+
+
+  @Component("cat")
+
+  class Cat implements Animal {}
+
+
+  @Service
+
+  class AnimalService {
+
+      @Autowired
+
+      @Qualifier("cat") // Explicitly inject the Cat bean
+
+      private Animal animal;
+
+  }
+
+Here, `@Qualifier("cat")` ensures that the `Cat` bean is injected, even if there's a `@Primary` bean of the same type.
+
+**Key Differences and Priority**
+
+* `@Primary` is used to define a default bean when no specific bean is requested. `@Qualifier` is used to explicitly select a bean by its name or a custom qualifier.  
+* `@Qualifier` has higher priority than `@Primary`. If you use `@Qualifier` to specify a bean, Spring will inject that bean regardless of whether there's a `@Primary` bean.  
+* `@Primary` is useful when you have a common implementation that should be used by default in most cases. `@Qualifier` is useful when you need to select a specific implementation in certain situations.
+
+**In summary:**
+
+* Use `@Primary` to define a default bean.  
+* Use `@Qualifier` to override the default and select a specific bean.
+
+If both `@Primary` and `@Qualifier` are present, `@Qualifier` takes precedence.
+
 # Do you have any experience in Code review?
 
 Yes, I have experience reviewing code for adherence to coding standards, readability, performance, and security best practices. I also focus on identifying potential bugs, ensuring proper test coverage, and reviewing logic and architectural decisions.
@@ -1047,6 +1129,75 @@ Let's delve into the internal workings of `HashMap` and `HashSet` in Java's Coll
 
 In essence, `HashSet` is a simplified wrapper around `HashMap` that leverages its key uniqueness feature to store a set of unique elements. Both rely on hashing for efficient performance. Understanding `HashMap` is essential for understanding how `HashSet` works.
 
+# Threads in Java
+
+Certainly, let's delve into threads in Java and some key interview questions.
+
+**Threads in Java**
+
+* **Definition:** A thread is the smallest unit of execution within a Java program. It represents an independent path of execution within a program. Multiple threads can run concurrently within a single Java program, allowing for multitasking and improved performance.
+
+* **Key Concepts:**
+
+  * **Concurrency:** The ability of multiple threads to execute seemingly simultaneously, even on a single-core processor (achieved through time-slicing).  
+  * **Parallelism:** True simultaneous execution of multiple threads, typically requiring a multi-core processor.  
+  * **Thread Lifecycle:**  
+    * **New:** Thread object is created.  
+    * **Runnable:** Thread is ready to run, but not yet executing.  
+    * **Running:** Thread is currently executing.  
+    * **Blocked:** Thread is temporarily paused (e.g., waiting for I/O).  
+    * **Terminated:** Thread has finished execution or has been stopped.  
+* **Creating Threads:**
+
+  * **Extending `Thread` class:** Create a new class that extends the `Thread` class and override the `run()` method.  
+  * **Implementing `Runnable` interface:** Create a class that implements the `Runnable` interface and implement the `run()` method. This is generally preferred as it promotes better code design and avoids the limitations of single inheritance.  
+* **Thread Synchronization:**
+
+  * Ensures that only one thread can access a shared resource at a time, preventing data corruption.  
+  * Achieved using mechanisms like `synchronized` blocks or methods, and locks (e.g., `ReentrantLock`).
+
+**Important Interview Questions**
+
+1. **What are the differences between a process and a thread?**
+
+| Feature | Process | Thread |
+| :---- | :---- | :---- |
+| **Definition** | An independent program with its own memory space and resources. | A unit of execution within a process, sharing the process’s memory space. |
+| **Resource Usage** | High resource overhead | Lower resource overhead |
+| **Creation** | More expensive to create | Less expensive to create. |
+| **Communication** | Inter-process communication(IPC) required | Easier communication within a process. |
+| **Context Switching** | More time-consuming | Less time-consuming |
+
+2. **What is thread synchronization and why is it important?**  
+   1. Explain the concept of thread synchronization and its importance in preventing data races and ensuring data consistency when multiple threads access shared resources.
+
+3. **What are the different ways to achieve thread synchronization in Java?**  
+   1. Discuss `synchronized` blocks/methods, `ReentrantLock`, and other synchronization primitives.
+
+4. **What is a deadlock and how can you avoid it?**  
+   1. **Deadlock:** A situation where two or more threads are blocked forever, waiting for each other to release a resource.  
+   2. **Avoidance:**  
+      1. **Avoid circular wait:** Ensure that threads acquire locks in a specific order.  
+      2. **Hold and wait:** Avoid acquiring new locks while holding existing locks.  
+      3. **No preemption:** Avoid forcibly taking locks away from threads.  
+5. **What is a race condition?**  
+    A situation where the output of a program depends on the relative order in which multiple threads execute.
+
+6. **What is the difference between `wait()` and `sleep()`?**  
+   1. **`wait()`:** Releases the lock on the current object and causes the thread to wait until another thread notifies it using `notify()` or `notifyAll()`.  
+   2. **`sleep()`:** Temporarily pauses the thread for a specified duration without releasing any locks.  
+7. **What is a thread pool and why is it useful?**  
+   1. **Thread Pool:** A collection of reusable threads that can be used to execute tasks.  
+   2. **Benefits:**  
+      1. Reduces the overhead of creating and destroying threads.  
+      2. Limits the number of concurrent threads, preventing resource exhaustion.  
+      3. Improves performance by reusing existing threads.  
+8. **What are the advantages of using threads in Java?**  
+* Improved responsiveness of applications.  
+* Better utilization of CPU resources.  
+* Ability to perform background tasks.  
+* Increased concurrency and parallelism.
+
 # Stored procedure and trigger.
 
 Both \*\*stored procedures\*\* and \*\*triggers\*\* are essential components of SQL databases, allowing for the encapsulation of business logic and automation of tasks. Here’s a detailed explanation of each:
@@ -1709,7 +1860,7 @@ Microservices architecture offers significant advantages in terms of scalability
 
 # What is the transaction propagation type?What is Mandatory
 
-# “@Qualifier”, “@Required”, “@ConfigurationProperties” and “@Value” annotation?
+# “@Qualifier”, “@Required”, “@ConfigurationProperties” and “@Value”, @ConditionalOnProperty annotation?
 
 Here is a detailed explanation of the Spring Boot annotations: @Qualifier, @Required, @RequiresNew, @ConfigurationProperties, and @Value.
 
@@ -2130,4 +2281,142 @@ Which one to use?
 * For simple asynchronous tasks, `Callable` and `Future` can suffice.  
 * For more complex scenarios where you need to chain operations or handle errors in a non-blocking manner, `CompletableFuture` is the recommended choice.
 
-# 
+# Spring Boot annotations.
+
+## **Core Spring**
+
+* [@Bean](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Bean.html) \- Annotated method produces a bean managed by the Spring IoC container  
+* Stereotype annotations  
+  * [@Component](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/stereotype/Component.html) \- Marks annotated class as a bean found by the component-scanning and loaded into the application context  
+  * [@Controller](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/stereotype/Controller.html) \- Marks annotated class as a bean for Spring MVC containing request handler  
+  * [@RestController](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/bind/annotation/RestController.html) \- Marks annotated class as a `@Controller` bean and adds `@ResponseBody` to serialize returned results as messages  
+  * [@Configuration](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Configuration.html) \- Marks annotated class as a Java configuration defining beans  
+  * [@Service](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/stereotype/Service.html) \- Marks annotated class as a bean (as convention usually containing business logic)  
+  * [@Repository](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/stereotype/Repository.html) \- Marks annotated class as a bean (as convention usually providing data access) and adds auto-translation from `SQLException` to `DataAccessExceptions`
+
+#### **Bean state**
+
+* [@PostConstruct](https://javaee.github.io/javaee-spec/javadocs/javax/annotation/PostConstruct.html) \- Annotated method is executed after dependency injection is done to perform initialization  
+* [@PreDestroy](https://javaee.github.io/javaee-spec/javadocs/javax/annotation/PreDestroy.html) \- Annotated method is executed before the bean is destroyed, e.g. on the shutdown
+
+#### **Configuration**
+
+* [@Import](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Import.html) \- Imports one or more Java configuration classes `@Configuration`  
+* [@PropertySource](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/PropertySource.html) \- Indicates the location of `applicaiton.properties` file to add key-value pairs to Spring `Environment`  
+* [@Value](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/annotation/Value.html) \- Annotated fields and parameters values will be injected  
+* [@ComponentScan](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/ComponentScan.html) \- Configures component scanning `@Compenent`, `@Service`, etc.
+
+#### **Bean properties**
+
+* [@Lazy](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Lazy.html) \- Annotated bean will be lazily initialized on the first usage  
+* [@Profile](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Profile.html) \- Indicates that beans will be only initialized if the defined profiles are active  
+* [@Scope](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Scope.html) \- Defines bean creation scope, e.g. prototype, singleton, etc.  
+* [@DependsOn](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/DependsOn.html) \- Explicitly defines a dependency to other beans in terms of creation order  
+* [@Order](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/core/annotation/Order.html) \- Defines sorting order if injecting a list of beans, but it does not resolve the priority if only a single bean is expected  
+* [@Primary](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Primary.html) \- Annotated bean will be picked if multiple beans can be autowired  
+* [@Conditional](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/Conditional.html) \- Annotated bean is created only if conditions are satisfied  
+  * Additionally available in Spring Boot:  
+    * [@ConditionalOnBean](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnBean.html)  
+    * [@ConditionalOnMissingBean](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnMissingBean.html)  
+    * [@ConditionalOnClass](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnClass.html)  
+    * [@ConditionalOnMissingClass](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnMissingClass.html)  
+    * [@ConditionalOnProperty](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnProperty.html)  
+    * [@ConditionalOnMissingProperty](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/condition/ConditionalOnProperty.html)
+
+#### **Bean injection**
+
+* [@Autowired](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/annotation/Autowired.html) \- Beans are injected into annotated setters, fields, or constructor params.  
+* [@Qualifier](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/beans/factory/annotation/Qualifier.html) \- Specifies the name of a bean as an additional condition to identify a unique candidate for autowiring
+
+#### **Validation**
+
+* [@Valid](https://javaee.github.io/javaee-spec/javadocs/javax/validation/Valid.html) \- Mark a property, method parameters or return type for validation  
+* [@Validated](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/validation/annotation/Validated.html) \- Variant of `@Valid` that allows validation of multiple groups, e.g. all fields of an annotated class  
+* [@NotNull](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/NotNull.html) \- Must be not null  
+* [@NotEmpty](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/NotEmpty.html) \- Must be not null nor empty  
+* [@NotBlank](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/NotBlank.html) \- Must be not null and at least one non-whitespace character  
+* [@Digits](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/Digits.html) \- Must be a number within accepted range  
+* [@Past](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/Past.html) \- Must be an instant, date or time in the past  
+* [@Future](https://javaee.github.io/javaee-spec/javadocs/javax/validation/constraints/Future.html) \- Must be an instant, date or time in the future  
+* ...
+
+## **Spring Boot**
+
+* [@SpringBootConfiguration](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/SpringBootConfiguration.html) \- Indicates Spring Boot application `@Configuration`  
+* [@EnableAutoConfiguration](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/EnableAutoConfiguration.html) \- Enables application context auto-configuration to provide possibly needed beans based on the classpath  
+* [@ConfigurationProperties](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/context/properties/ConfigurationProperties.html) \- Provides external binding of key value properties  
+* [@ConstructorBinding](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/context/properties/ConstructorBinding.html) \- Bind properties by using constructor rather than setters  
+* [@ConfigurationPropertiesScan](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/context/properties/ConfigurationPropertiesScan.html) \- Enables auto-detection of `@ConfigurationProperties` classes  
+* [@SpringBootApplication](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/SpringBootApplication.html) \- Combination of `@SpringBootConfiguration`, `@EnableAutoConfiguration`, `@ConfigurationPropertiesScan` and `@ComponentScan`  
+* [@EntityScan](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/autoconfigure/domain/EntityScan.html) \- Configures base packages to scan for entity classes  
+* [@EnableJpaRepositories](https://docs.spring.io/spring-data/data-jpa/docs/current/api/org/springframework/data/jpa/repository/config/EnableJpaRepositories.html) \- Enables auto-configuration of jpa repositories
+
+## **Spring Boot Tests**
+
+* [@SpringBootTest](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/test/context/SpringBootTest.html) \- Annotated test class will load the entire application context for integration tests  
+* [@WebMvcTest](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/test/autoconfigure/web/servlet/WebMvcTest.html) \- Annotated test class will load only the web layer (service and data layer are ignored)  
+* [@DataJpaTest](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/test/autoconfigure/orm/jpa/DataJpaTest.html) \- Annotated class will load only the JPA components  
+* [@JsonTest](https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#features.testing.spring-boot-applications.json-tests) \- Annotated class will load only json mapper for serialization and deserialization tests  
+* [@MockBean](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/test/mock/mockito/MockBean.html) \- Marks annotated field as a mock and loads it as a bean into the application context  
+* [@SpyBean](https://docs.spring.io/spring-boot/docs/current/api/org/springframework/boot/test/mock/mockito/SpyBean.html) \- Allows partial mocking of beans  
+* [@Mock](https://www.javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mock.html) \- Defines annotated field as a mock
+
+## **Spring Test**
+
+* [@ContextConfiguration](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/test/context/ContextConfiguration.html) \- Defines `@Configuration` to load application context for integration test  
+* [@ExtendWith](https://junit.org/junit5/docs/current/api/org.junit.jupiter.api/org/junit/jupiter/api/extension/ExtendWith.html) \- Defines extensions to execute the tests with, e.g. MockitoExtension  
+* [@SpringJUnitConfig](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/test/context/junit/jupiter/SpringJUnitConfig.html) \- Combines `@ContextConfiguration` and `@ExtendWith(SpringExtension.class)`  
+* [@TestPropertySource](https://docs.spring.io/spring/docs/current/javadoc-api/org/springframework/test/context/TestPropertySource.html) \- Defines the location of property files used in integration tests  
+* [@DirtiesContext](https://docs.spring.io/spring/docs/current/javadoc-api/org/springframework/test/annotation/DirtiesContext.html) \- Indicates that annotated tests dirty the application context and will be cleaned after each test  
+* [@ActiveProfiles](https://docs.spring.io/spring/docs/current/javadoc-api/org/springframework/test/context/ActiveProfiles.html) \- Defines which active bean definition should be loaded when initializing the test application context  
+* [@Sql](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/test/context/jdbc/Sql.html) \- Allows defining SQL scripts and statements to be executed before and after tests
+
+## **Transactions**
+
+* [@EnableTransactionManagement](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/annotation/EnableTransactionManagement.html) \- Enables annotation-driven transaction declaration `@Transactional`  
+* [@Transactional](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/transaction/annotation/Transactional.html) \- Annotated methods will be executed in a transactional manner
+
+## **Spring JPA and Hibernate**
+
+* [@Id](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Id.html) \- Marks annotated field as a primary key of an entity  
+* [@GeneratedValue](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/GeneratedValue.html) \- Provides generation strategy of primary keys  
+* [@Entity](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Entity.html) \- Marks annotated class as an entity  
+* [@Column](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Column.html) \- Provides additional configuration for a field, e.g. column name  
+* [@Table](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Table.html) \- Provides additional configuration for an entity, e.g. table name  
+* [@PersistenceContext](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/PersistenceContext.html) \- `EntityManger` is injected into annotated setters and fields  
+* [@Embedded](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Embedded.html) \- Annotated field is instantiated as a value of an `Embeddable` class  
+* [@Embeddable](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Embeddable.html) \- Instances of an annotated class are stored as part of an entity  
+* [@EmbeddedId](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/EmbeddedId.html) \- Marks annotated property as a composite key mapped by an embeddable class  
+* [@AttributeOverride](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/AttributeOverride.html) \- Overrides the default mapping of a field  
+* [@Transient](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/Transient.html) \- Annotated field is not persistent  
+* [@CreationTimestamp](https://docs.jboss.org/hibernate/orm/5.4/javadocs/org/hibernate/annotations/CreationTimestamp.html) \- Annotated field contains the timestamp when an entity was stored for the first time  
+* [@UpdateTimestamp](https://docs.jboss.org/hibernate/orm/5.4/javadocs/org/hibernate/annotations/UpdateTimestamp.html) \- Annotated field contains the timestamp when an entity was updated last time  
+* [@ManyToOne](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/ManyToOne.html) \- Indicates N:1 relationship, the entity containing annotated field has a single relation to an entity of other class, but the other class has multiple relations  
+* [@JoinColumn](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/JoinColumn.html) \- Indicates a column for joining entities in `@ManyToOne` or `@OneToOne` relationships at the owning side or unidirectional `@OneToMany`  
+* [@OneToOne](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/OneToOne.html) \- Indicates 1:1 relationship  
+* [@MapsId](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/MapsId.html) \- References joining columns of owning side of `@ManyToOne` or `@OneToOne` relationships to be the primary key of referencing and referenced entities  
+* [@ManyToMany](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/ManyToMany.html) \- Indicates N:M relationship  
+* [@JoinTable](https://javaee.github.io/javaee-spec/javadocs/javax/persistence/JoinTable.html) \- Specifies an association using a join table  
+* [@BatchSize](https://docs.jboss.org/hibernate/orm/5.4/javadocs/org/hibernate/annotations/BatchSize.html) \- Defines size to lazy load a collection of annotated entities  
+* [@FetchMode](https://docs.jboss.org/hibernate/orm/5.4/javadocs/org/hibernate/annotations/FetchMode.html) \- Defines fetching strategy for an association, e.g. loading all entities in a single subquery
+
+## **Spring Security**
+
+* [@EnableWebSecurity](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/config/annotation/web/configuration/EnableWebSecurity.html) \- Enables web security  
+* [@EnableGlobalMethodSecurity](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/config/annotation/method/configuration/EnableGlobalMethodSecurity.html) \- Enables method security  
+* [@PreAuthorize](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/access/prepost/PreAuthorize.html) \- Defines access-control expression using SpEL, which is evaluated before invoking a protected method  
+* [@PostAuthorize](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/access/prepost/PostAuthorize.html) \- Defines access-control expression using SpEL, which is evaluated after invoking a protected method  
+* [@RolesAllowed](https://javaee.github.io/javaee-spec/javadocs/javax/annotation/security/RolesAllowed.html) \- Specifies a list of security roles allowed to invoke protected method  
+* [@Secured](https://docs.spring.io/spring-security/site/docs/current/api/org/springframework/security/access/annotation/Secured.html) \- Java 5 annotation for defining method level security
+
+## **Spring AOP**
+
+* [@EnableAspectJAutoProxy](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/context/annotation/EnableAspectJAutoProxy.html) \- Enables support for handling components marked with `@Aspect`  
+* [@Aspect](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/Aspect.html) \- Declares an annotated component as an aspect containing pointcuts and advices  
+* [@Before](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/Before.html) \- Declares a pointcut executed before the call is propagated to the join point  
+* [@AfterReturning](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/AfterReturning.html) \- Declares a pointcut executed if the join point successfully returns a result  
+* [@AfterThrowing](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/AfterThrowing.html) \- Declares a pointcut executed if the join point throws an exception  
+* [@After](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/After.html) \- Declares a pointcut executed if the join point successfully returns a result or throws an exception  
+* [@Around](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/Around.html) \- Declares a pointcut executed before the call giving control over the execution of the join point to the advice  
+* [@Pointcut](https://javadoc.io/static/org.aspectj/aspectjrt/1.9.5/org/aspectj/lang/annotation/Pointcut.html) \- Externalized definition a pointcut expression
+
