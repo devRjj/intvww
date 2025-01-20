@@ -1,5 +1,82 @@
 # Java Coding
 
+# **Programming Question**
+
+# Find nth non-repeating character.
+
+import java.util.HashMap;  
+import java.util.LinkedHashMap;  
+import java.util.List;  
+import java.util.Map;
+
+public class SecondNonRepeatingCharacter {  
+	public static void main(String\[\] args) {  
+    	String str \= "ahellohworld";
+
+    	Map\<Character, Integer\> mp \= new LinkedHashMap\<\>();  
+//    	Map\<Character, Integer\> mp \= new HashMap\<\>();  
+//    	This HashMap() is not suitable for solving this question because.  
+    	char\[\] charArray \= str.toCharArray();
+
+    	for(char c: charArray){  
+        	mp.put(c, \!mp.containsKey(c)?1:mp.get(c)+1);  
+    	}
+
+    	Character nonRepeating \= mp.entrySet().stream()  
+            	.filter(e-\>e.getValue()==1)  
+            	.skip(1)  
+            	.findFirst()  
+            	.get()  
+            	.getKey();
+
+    	System.out.println(ls);  
+}  
+}  
+**Order of Iteration:**
+
+* **LinkedHashMap**: Preserves the insertion order of key-value pairs. This means the order in which you put elements into the map is the order in which they will be iterated over.  
+* **HashMap**: Does not guarantee any specific order of iteration. The order may vary unpredictably across different Java versions or even between different runs of the same program.
+
+**Use Cases:**
+
+* **LinkedHashMap:** Suitable when the order of elements is important. For example:  
+  * Maintaining the order of elements in a cache.  
+  * Implementing a Least Recently Used (LRU) cache.  
+  * Creating ordered logs or history.  
+* **HashMap:** Generally more efficient for general-purpose key-value storage where order is not a concern. Offers faster insertion and retrieval times compared to LinkedHashMap.
+
+In the above code:
+
+* **Using LinkedHashMap:** The nonRepeating variable will always hold the second non-repeating character encountered in the string. This is because LinkedHashMap maintains the order of insertion, so the skip(1) operation will skip the first non-repeating character and return the second one.  
+* **Using HashMap:** The ls variable will hold an arbitrary non-repeating character. Since the order of iteration is not guaranteed, the skip(1) operation will skip an unpredictable character, and the result will be non-deterministic.
+
+**In summary:** If you need to maintain the order of elements as they were inserted, use LinkedHashMap. If order is not a concern and you prioritize performance, use HashMap.
+
+# Sum of list of numbers using stream
+
+# Find Average of list of numbers
+
+# Square of each number
+
+# Find numbers that starts with 2
+
+# Find duplicate elements from the list
+
+# Find maximum and minimum
+
+# Sort numbers in ascending and descending
+
+# Find duplicate characters in a string.
+
+# Elements and their count in string.
+
+# Maximum marks of students.
+
+al.stream().collect(Collectors.maxBy(Comparator.comparing(Student::getMarks)))  
+.isPresentOrElse(  
+e-\>System.out.println(“Highest marks: ”+e.getMarks()),   
+	()-\>System.out.println(“Marks not found”))
+
 # Which method will be called?
 
 class A {  
@@ -56,8 +133,9 @@ List\<String\> stringList \= Arrays.asList("Hello", "World", "Java", "Programmin
 
 for (String str : stringList) {  
    System.out.println("String: \\"" \+ str \+ "\\" has length: " \+ str.length());  
-}  
-Rotate an array by right using case steps.
+}
+
+# Rotate an array by right using case steps.
 
 # Write a java program to find the length of a String without using length, size.
 
@@ -134,7 +212,7 @@ i, Collectors.counting()));
 
 # Sort a map by value where String is key, Integer is value.
 
-15\. File having 10L lines of text, read and store it in Hashmap
+# File having 10L lines of text, read and store it in Hashmap
 
 # Write a program to achieve Runtime polymorphism.
 
@@ -199,8 +277,9 @@ Cat meows
 * Dynamic Method Dispatch\*\*: This is another term for runtime polymorphism, where the call to an overridden method is resolved during execution.  
 * Flexibility\*\*: This allows for more flexible and reusable code since you can work with base class references while still invoking subclass behavior.
 
-This example effectively illustrates how runtime polymorphism works in Java through inheritance and method overriding.  
-4\. Write a pgm to check string2 is substring of string1 or not
+This example effectively illustrates how runtime polymorphism works in Java through inheritance and method overriding.
+
+# Write a java program to check if string\_2 is substring of string1 or not.
 
 # How to create custom exceptions.
 
@@ -280,10 +359,12 @@ List\<Integer\> startsWithOne \= numbers.stream()
 
 System.out.println("Values that start with '1': " \+ startsWithOne);
 
-find the num of occurnces of each letter in below String using java8  
-String str \= "hyujikoyhfrtuj";  
-18\. Employee object \-\> sort the by employee name using Java8 and explain  
-19\. Employee object \-\> group by gender using Java8 and explain  
+# Occurrence of each letter in below String using java8. String str \= "hyujikoyhfrtuj";
+
+# Employee object \-\> sort the by employee name using Java8 and explain
+
+# Group Employees by gender using Java8 and explain
+
 What is the o/p of below code  
 public class StringBasics {  
 public static void main(String\[\] args) {   
@@ -320,62 +401,61 @@ Check "A11" is exist in this arrays or not using java8
 String\[\] str1 \= new String\[\] { "A01", "A02", "A01" };  
 String\[\] str2 \= new String\[\] { "A11", "A12", "A13" };
 
-Is the below code correct ?  
+# Is the below code correct ?
+
 @FunctionalInterface interface Test{  
 void say(String msg);  
 // Object class methods. int hashCode();  
 }  
-The code you provided is almost correct, but it contains a misunderstanding regarding the use of the `@FunctionalInterface` annotation in Java.
+The code you provided is almost correct, but it contains a misunderstanding regarding the use of the @FunctionalInterface annotation in Java.  
+Explanation of the Code
 
-## **Explanation of the Code**
+1. Functional Interface: A functional interface is an interface that contains exactly one abstract method. This allows instances of functional interfaces to be created using lambda expressions or method references.  
+2. Object Class Methods: The Object class methods (like hashCode(), equals(), etc.) are not considered abstract methods in the context of a functional interface. They are inherited from the Object class and do not count against the single abstract method requirement.
 
-1. **Functional Interface**: A functional interface is an interface that contains exactly one abstract method. This allows instances of functional interfaces to be created using lambda expressions or method references.  
-2. **Object Class Methods**: The `Object` class methods (like `hashCode()`, `equals()`, etc.) are not considered abstract methods in the context of a functional interface. They are inherited from the `Object` class and do not count against the single abstract method requirement.
-
-## **Corrected Code**
-
+Corrected Code  
 Here’s how you can define a functional interface correctly:  
 java  
-`@FunctionalInterface`  
-`interface Test {`  
-    `void say(String msg); // This is the single abstract method.`  
-    `// The following line is commented out because it would cause a compilation error.`  
-    `// Object class methods like hashCode() should not be declared here.`  
-    `// int hashCode(); // This line should be removed or commented out.`  
-`}`
+@FunctionalInterface  
+interface Test {  
+    void say(String msg); // This is the single abstract method.  
+    // The following line is commented out because it would cause a compilation error.  
+    // Object class methods like hashCode() should not be declared here.  
+    // int hashCode(); // This line should be removed or commented out.  
+}
 
-## **Key Points**
+Key Points
 
-* **Single Abstract Method**: The interface `Test` has one abstract method `say(String msg)`, which is correct for a functional interface.  
-* **Inherited Methods**: Methods from the `Object` class (like `hashCode()`, `equals()`, etc.) do not count as abstract methods for the purposes of defining a functional interface. You do not need to declare them explicitly in your interface.  
-* **Compilation Error**: If you include `int hashCode();` as an explicit method in your interface, it will cause a compilation error because it would then have two abstract methods (the one you defined and the one inherited from `Object`).
+* Single Abstract Method: The interface Test has one abstract method say(String msg), which is correct for a functional interface.  
+* Inherited Methods: Methods from the Object class (like hashCode(), equals(), etc.) do not count as abstract methods for the purposes of defining a functional interface. You do not need to declare them explicitly in your interface.  
+* Compilation Error: If you include int hashCode(); as an explicit method in your interface, it will cause a compilation error because it would then have two abstract methods (the one you defined and the one inherited from Object).
 
-## **Example Usage**
-
+Example Usage  
 Here’s how you might use this functional interface with a lambda expression:  
 java  
-`public class Main {`  
-    `public static void main(String[] args) {`  
-        `Test test = msg -> System.out.println("Message: " + msg);`  
-        `test.say("Hello, Functional Interface!");`  
-    `}`  
-`}`
+public class Main {  
+    public static void main(String\[\] args) {  
+        Test test \= msg \-\> System.out.println("Message: " \+ msg);  
+        test.say("Hello, Functional Interface\!");  
+    }  
+}
 
-## **Summary**
+Summary  
+The corrected definition of your functional interface should only include the unique abstract method you want to define, without explicitly declaring methods inherited from the Object class. The rest of your code regarding usage and definition was on the right track\!
 
-The corrected definition of your functional interface should only include the unique abstract method you want to define, without explicitly declaring methods inherited from the `Object` class. The rest of your code regarding usage and definition was on the right track\!
+# Print the emp name whose salary is \>10000 in sorted order without any duplicates.
 
-8\. Print the emp name whose salary is \>10000 in sorted order without any duplicates.
+# Print the name of the employee whose salary is \>20000 using streams api.
 
-Print the name of the employee whose salary is \>20000 using streams api.
+# Print num of occurrences of each word in a given string.
 
-2\. Print num of occurrences of each word in a given string.  
-String str \= “big black bug bit a big black dog on his big black nose”
+# String str \= “big black bug bit a big black dog on his big black nose”.
 
-Print the values which starts with 1 in the given below list.  
+# Print the values which start with 1 in the given below list.
+
 list (10,15,8,49,25,98,98,32,15)
 
-Write a java program to check if any number given as input is the sum of 2 prime numbers.
+# Write a java program to check if any number given as input is the sum of 2 prime numbers.
 
 # Check if the number is an Armstrong number.
 
